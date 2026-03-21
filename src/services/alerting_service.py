@@ -14,13 +14,14 @@ Free tier: 1M SNS publishes/month + 1000 email notifications/month.
 import os
 import json
 import logging
+import uuid
 from datetime import datetime, timezone
 
 import boto3
 
 logger = logging.getLogger(__name__)
 
-ALERTS_TOPIC_ARN    = os.environ.get("ALERTS_TOPIC_ARN", "")
+ALERTS_TOPIC_ARN     = os.environ.get("ALERTS_TOPIC_ARN", "")
 CLOUDWATCH_NAMESPACE = os.environ.get("CLOUDWATCH_NAMESPACE", "RhythmCloud")
 
 _sns = boto3.client("sns")
@@ -200,6 +201,32 @@ def publish_alert(event: dict) -> bool:
             alert["type"],
             alert["severity"],
         )
+
+        # ── Write alert record to DynamoDB for response time tracking ─────────
+        try:
+            from services.alerts_db_service import put_alert
+            from decimal import Decimal
+            alert_record = {
+                "alertId":    str(uuid.uuid4()),
+                "patientId":  event.get("patientId", "UNKNOWN"),
+                "deviceId":   event.get("deviceId",  "UNKNOWN"),
+                "eventId":    event.get("eventId",   "UNKNOWN"),
+                "alertType":  alert["type"],
+                "severity":   alert["severity"],
+                "message":    alert["message"],
+                "status":     "ACTIVE",
+                "detectedAt": event.get("ingestedAt",
+                              datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")),
+                "snsMessageId":      message_id,
+                "heartRate":         Decimal(str(event.get("heartRate",      0))),
+                "spo2":              Decimal(str(event.get("spo2",           0))),
+                "systolicBP":        Decimal(str(event.get("systolicBP",     0))),
+                "transmissionStatus":event.get("transmissionStatus", ""),
+                "syncStatus":        event.get("syncStatus",     ""),
+            }
+            put_alert(alert_record)
+        except Exception as db_exc:
+            logger.warning("Failed to write alert record to DynamoDB: %s", db_exc)
 
         # Publish AlertsSent metric to CloudWatch
         try:

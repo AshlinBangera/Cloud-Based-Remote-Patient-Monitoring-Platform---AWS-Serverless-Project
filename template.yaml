@@ -48,6 +48,7 @@ Globals:
         POWERTOOLS_SERVICE_NAME: rhythmcloud
         POWERTOOLS_LOG_LEVEL:    !Ref LogLevel
         ALERTS_TOPIC_ARN:        !Ref ClinicalAlertsTopic
+        ALERTS_TABLE:            !Sub "rhythmcloud-alerts-${Environment}"
 
 Resources:
 
@@ -189,6 +190,29 @@ Resources:
         - { Key: Project,     Value: RhythmCloud }
         - { Key: Environment, Value: !Ref Environment }
 
+  # ── DynamoDB: Alerts ──────────────────────────────────────────────────────────
+  # Tracks clinical alerts with detectedAt / acknowledgedAt for response time KPI
+  AlertsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "rhythmcloud-alerts-${Environment}"
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: alertId,    AttributeType: S }
+        - { AttributeName: patientId,  AttributeType: S }
+        - { AttributeName: detectedAt, AttributeType: S }
+      KeySchema:
+        - { AttributeName: alertId, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: PatientAlertsIndex
+          KeySchema:
+            - { AttributeName: patientId,  KeyType: HASH }
+            - { AttributeName: detectedAt, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      Tags:
+        - { Key: Project,     Value: RhythmCloud }
+        - { Key: Environment, Value: !Ref Environment }
+
   # ── S3: Raw Event Archive ─────────────────────────────────────────────────────
   RawEventsBucket:
     Type: AWS::S3::Bucket
@@ -264,12 +288,14 @@ Resources:
                   - !GetAtt DashboardAggregatesTable.Arn
                   - !GetAtt RecentEventsTable.Arn
                   - !GetAtt DeviceStatusTable.Arn
+                  - !GetAtt AlertsTable.Arn
               - Sid: GSIAccess
                 Effect: Allow
                 Action:
                   - dynamodb:Query
                 Resource:
                   - !Sub "${TelemetryEventsTable.Arn}/index/*"
+                  - !Sub "${AlertsTable.Arn}/index/*"
               - Sid: StreamRead
                 Effect: Allow
                 Action:
@@ -594,6 +620,52 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/rhythmcloud-get-patient-events-${Environment}"
       RetentionInDays: 30
 
+  # ── Lambda: Acknowledge Alert ─────────────────────────────────────────────────
+  AcknowledgeAlertFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "rhythmcloud-acknowledge-alert-${Environment}"
+      CodeUri: src/
+      Handler: handlers.acknowledge_alert.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Description: POST /alerts/{alertId}/acknowledge — records clinician acknowledgement
+      Events:
+        AcknowledgeAlert:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RhythmCloudApi
+            Path: /alerts/{alertId}/acknowledge
+            Method: POST
+
+  AcknowledgeAlertLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/rhythmcloud-acknowledge-alert-${Environment}"
+      RetentionInDays: 30
+
+  # ── Lambda: Get Patient Alerts ────────────────────────────────────────────────
+  GetPatientAlertsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "rhythmcloud-get-patient-alerts-${Environment}"
+      CodeUri: src/
+      Handler: handlers.get_patient_alerts.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Description: GET /patients/{patientId}/alerts — alert history with response time stats
+      Events:
+        GetAlerts:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RhythmCloudApi
+            Path: /patients/{patientId}/alerts
+            Method: GET
+
+  GetPatientAlertsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/rhythmcloud-get-patient-alerts-${Environment}"
+      RetentionInDays: 30
+
   # ── CloudWatch Alarms ─────────────────────────────────────────────────────────
   HighAbnormalEventRateAlarm:
     Type: AWS::CloudWatch::Alarm
@@ -744,3 +816,7 @@ Outputs:
   ClinicalAlertsTopicArn:
     Value: !Ref ClinicalAlertsTopic
     Export: { Name: !Sub "RhythmCloudAlertsTopicArn-${Environment}" }
+
+  AlertsTableName:
+    Value: !Ref AlertsTable
+    Export: { Name: !Sub "RhythmCloudAlertsTable-${Environment}" }
