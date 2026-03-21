@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>RhythmCloud – Remote Patient Monitoring Platform</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ─── CSS Variables ────────────────────────────────────────── */
+  :root {
+    --navy-900: #060d1f;
+    --navy-800: #0b1630;
+    --navy-700: #0f1e42;
+    --navy-600: #162449;
+    --navy-500: #1c2d58;
+    --panel:    #0d1a36;
+    --panel-border: rgba(82, 138, 255, 0.18);
+    --blue-accent: #3b82f6;
+    --blue-bright: #60a5fa;
+    --cyan:  #22d3ee;
+    --green: #22c55e;
+    --green-dim: #16a34a;
+    --amber: #f59e0b;
+    --red:   #ef4444;
+    --text-primary:   #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted:     #475569;
+    --mono: 'JetBrains Mono', monospace;
+    --ui:   'Inter', sans-serif;
+    --display: 'Rajdhani', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--navy-900);
+    color: var(--text-primary);
+    font-family: var(--ui);
+    font-size: 13px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ─── Animated grid background ──────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(59,130,246,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,0.04) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .page { position: relative; z-index: 1; padding: 0 0 24px; }
+
+  /* ─── Header ────────────────────────────────────────────────── */
+  .header {
+    background: linear-gradient(135deg, #0a1428 0%, #0d1e40 50%, #091122 100%);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .header-left { display: flex; align-items: center; gap: 20px; }
+
+  .logo-mark {
+    font-family: var(--display);
+    font-size: 26px;
+    font-weight: 700;
+    color: #ffffff;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .logo-mark::before {
+    content: '';
+    width: 4px;
+    height: 28px;
+    background: linear-gradient(180deg, var(--cyan), var(--blue-accent));
+    border-radius: 2px;
+    display: block;
+  }
+
+  .header-title { border-left: 1px solid var(--panel-border); padding-left: 20px; }
+  .header-title h1 {
+    font-family: var(--display);
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    letter-spacing: 0.5px;
+    line-height: 1.2;
+  }
+  .header-title .subtitle {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    letter-spacing: 1px;
+  }
+
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  .btn-github {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--navy-600);
+    border: 1px solid var(--panel-border);
+    color: var(--text-primary);
+    padding: 7px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-github:hover { background: var(--navy-500); border-color: var(--blue-accent); }
+  .btn-github svg { flex-shrink: 0; }
+
+  .nano-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+  .nano-badge .banana { font-size: 16px; }
+
+  .update-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+    background: rgba(59,130,246,0.08);
+    border: 1px solid var(--panel-border);
+    padding: 4px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ─── Section Labels ─────────────────────────────────────────── */
+  .section-bar {
+    background: var(--navy-700);
+    border-top: 1px solid var(--panel-border);
+    border-bottom: 1px solid var(--panel-border);
+    padding: 6px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0;
+  }
+  .section-bar h2 {
+    font-family: var(--display);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* ─── Main Grid ──────────────────────────────────────────────── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+    grid-template-rows: auto auto;
+    gap: 10px;
+    padding: 12px 18px 0;
+  }
+
+  /* ─── Panels ─────────────────────────────────────────────────── */
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 14px;
+    position: relative;
+    overflow: hidden;
+  }
+  .panel::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(59,130,246,0.4), transparent);
+    border-radius: 8px 8px 0 0;
+  }
+  .panel-title {
+    font-family: var(--display);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .panel-title .dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--blue-accent);
+    flex-shrink: 0;
+  }
+
+  /* ─── KPI Row ────────────────────────────────────────────────── */
+  .kpi-row {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1.2fr 1fr 1.8fr;
+    gap: 10px;
+    padding: 12px 18px 0;
+  }
+
+  /* ─── Gauge Panel ────────────────────────────────────────────── */
+  .gauge-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .gauge-wrap {
+    position: relative;
+    width: 110px;
+    height: 70px;
+    flex-shrink: 0;
+  }
+  .gauge-canvas { width: 110px !important; height: 110px !important; margin-top: -30px; }
+  .gauge-val {
+    position: absolute;
+    bottom: 0; left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--green);
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .gauge-sub {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-muted);
+    margin-top: 6px;
+    text-align: center;
+    letter-spacing: 0.5px;
+  }
+  .trend-mini {
+    width: 100%;
+    margin-top: 8px;
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+    font-family: var(--mono);
+  }
+  canvas.trend-canvas { width: 100% !important; height: 32px !important; }
+
+  /* ─── Sync Status Panel ──────────────────────────────────────── */
+  .sync-status { display: flex; flex-direction: column; justify-content: space-between; height: 100%; }
+  .sync-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--display);
+    font-size: 19px;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: 0.5px;
+    margin: 8px 0;
+  }
+  .sync-badge .pulse {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-anim 2s infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pulse-anim {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+    50%       { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+  }
+  .sync-last {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  .sync-stats { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .sync-stat {
+    display: flex; justify-content: space-between;
+    font-size: 10px; color: var(--text-secondary);
+  }
+  .sync-stat strong { color: var(--text-primary); font-family: var(--mono); }
+
+  /* ─── Abnormal count ─────────────────────────────────────────── */
+  .abnormal-count {
+    font-family: var(--display);
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--amber);
+    line-height: 1;
+    text-align: center;
+    margin: 8px 0 2px;
+    text-shadow: 0 0 20px rgba(245,158,11,0.4);
+  }
+  .abnormal-sub {
+    text-align: center;
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+  .abnormal-warn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--amber);
+    font-family: var(--mono);
+  }
+
+  /* ─── AWS Pipeline panel ─────────────────────────────────────── */
+  .pipeline-panel {
+    grid-column: span 2;
+    display: flex;
+    flex-direction: column;
+  }
+  .pipeline-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    text-align: center;
+    margin-bottom: 10px;
+    letter-spacing: 0.5px;
+  }
+  .pipeline-flow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    flex: 1;
+  }
+  .pipe-node {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    flex: 1;
+  }
+  .pipe-icon {
+    width: 36px; height: 36px;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px;
+    border: 1px solid var(--panel-border);
+    position: relative;
+    transition: all 0.3s;
+  }
+  .pipe-icon.iot    { background: rgba(34,211,238,0.12); border-color: rgba(34,211,238,0.3); }
+  .pipe-icon.apigw  { background: rgba(147,51,234,0.12); border-color: rgba(147,51,234,0.3); }
+  .pipe-icon.lambda { background: rgba(251,146,60,0.12); border-color: rgba(251,146,60,0.3); }
+  .pipe-icon.dynamo { background: rgba(59,130,246,0.12); border-color: rgba(59,130,246,0.3); }
+  .pipe-icon.s3     { background: rgba(34,197,94,0.12);  border-color: rgba(34,197,94,0.3); }
+  .pipe-icon.cw     { background: rgba(239,68,68,0.12);  border-color: rgba(239,68,68,0.3); }
+
+  .pipe-icon.active::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 10px;
+    border: 1px solid currentColor;
+    opacity: 0;
+    animation: ring-anim 2s infinite;
+  }
+  @keyframes ring-anim {
+    0% { opacity: 0.6; transform: scale(0.95); }
+    100% { opacity: 0; transform: scale(1.15); }
+  }
+  .pipe-icon.iot.active    { color: var(--cyan); }
+  .pipe-icon.apigw.active  { color: rgb(167,139,250); }
+  .pipe-icon.lambda.active { color: rgb(251,146,60); }
+
+  .pipe-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    text-align: center;
+    font-family: var(--mono);
+    line-height: 1.3;
+  }
+  .pipe-arrow {
+    color: var(--panel-border);
+    font-size: 12px;
+    padding: 0 2px;
+    margin-bottom: 14px;
+  }
+  .pipe-data-indicator {
+    height: 2px;
+    background: linear-gradient(90deg, var(--blue-accent), transparent);
+    border-radius: 1px;
+    width: 0%;
+    transition: width 0.5s ease;
+  }
+
+  /* ─── Bottom grid ────────────────────────────────────────────── */
+  .bottom-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.4fr 1.4fr 1.6fr;
+    gap: 10px;
+    padding: 10px 18px 0;
+  }
+
+  /* ─── Bar chart panel ────────────────────────────────────────── */
+  .chart-panel { display: flex; flex-direction: column; }
+  .chart-panel canvas { flex: 1; }
+
+  /* ─── Events table ───────────────────────────────────────────── */
+  .events-panel { display: flex; flex-direction: column; }
+  .events-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10.5px;
+    flex: 1;
+  }
+  .events-table th {
+    text-align: left;
+    color: var(--text-muted);
+    font-weight: 500;
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--panel-border);
+    text-transform: uppercase;
+  }
+  .events-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid rgba(82,138,255,0.06);
+    vertical-align: middle;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .events-table tr:last-child td { border-bottom: none; }
+  .events-table tr { animation: row-in 0.3s ease; }
+  @keyframes row-in {
+    from { opacity: 0; transform: translateX(-6px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+  }
+  .status-pill.successful { background: rgba(34,197,94,0.15); color: var(--green); }
+  .status-pill.alerted    { background: rgba(245,158,11,0.15); color: var(--amber); }
+  .status-pill.verified   { background: rgba(59,130,246,0.15); color: var(--blue-bright); }
+  .status-pill.failed     { background: rgba(239,68,68,0.15);  color: var(--red); }
+
+  .event-type-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--text-secondary);
+    font-size: 9.5px;
+  }
+
+  /* ─── Heatmap ────────────────────────────────────────────────── */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: 28px repeat(7, 1fr);
+    grid-template-rows: 16px repeat(7, 1fr);
+    gap: 2px;
+    flex: 1;
+    margin-top: 4px;
+  }
+  .hm-label {
+    font-size: 8px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .hm-cell {
+    border-radius: 2px;
+    transition: all 0.3s;
+    cursor: default;
+    position: relative;
+  }
+  .hm-cell:hover::after {
+    content: attr(data-val);
+    position: absolute;
+    bottom: calc(100% + 4px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--navy-600);
+    border: 1px solid var(--panel-border);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-family: var(--mono);
+    color: var(--text-primary);
+    white-space: nowrap;
+    z-index: 10;
+  }
+
+  /* ─── Legend bar ─────────────────────────────────────────────── */
+  .hm-legend {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 8.5px;
+    color: var(--text-muted);
+    font-family: var(--mono);
+  }
+  .hm-legend-bar {
+    flex: 1;
+    height: 6px;
+    border-radius: 3px;
+    background: linear-gradient(90deg, #0f2044, #1a3a6e, #2255b8, #ef4444);
+  }
+
+  /* ─── Utility ────────────────────────────────────────────────── */
+  .flex-row { display: flex; align-items: center; gap: 8px; }
+  .live-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--green);
+    animation: pulse-anim 1.5s infinite;
+  }
+  .text-mono { font-family: var(--mono); }
+  .text-muted { color: var(--text-muted); }
+
+  /* ─── Chart common ───────────────────────────────────────────── */
+  .chart-container { position: relative; width: 100%; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════════════════════ HEADER ════════════════════════════ -->
+  <header class="header">
+    <div class="header-left">
+
+      <!-- RhythmCloud Logo: inline SVG recreation -->
+      <div style="display:flex;align-items:center;gap:14px;flex-shrink:0;">
+        <svg width="210" height="52" viewBox="0 0 420 100" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="cloudGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%"   stop-color="#22d3ee"/>
+              <stop offset="100%" stop-color="#1d4ed8"/>
+            </linearGradient>
+            <linearGradient id="ecgGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%"   stop-color="#22d3ee"/>
+              <stop offset="100%" stop-color="#2563eb"/>
+            </linearGradient>
+          </defs>
+          <!-- Cloud shape -->
+          <path d="M28 72 Q14 72 14 58 Q14 46 26 44 Q24 36 32 30 Q42 22 54 28 Q60 18 72 18 Q90 18 94 34 Q104 32 110 42 Q118 52 110 62 Q104 72 92 72 Z"
+                fill="none" stroke="url(#cloudGrad)" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <!-- ECG / heartbeat line through cloud -->
+          <polyline
+            points="10,58 28,58 36,58 42,38 46,76 52,42 56,68 62,58 80,58 92,58 110,58"
+            fill="none" stroke="url(#ecgGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- "RhythmCloud" wordmark -->
+          <text x="126" y="62"
+            font-family="'Inter', 'Segoe UI', sans-serif"
+            font-size="38" font-weight="700"
+            fill="url(#cloudGrad)"
+            letter-spacing="-0.5">RhythmCloud</text>
+        </svg>
+      </div>
+
+      <!-- Tagline -->
+      <div style="border-left:1px solid var(--panel-border); padding-left:18px; line-height:1.45;">
+        <div style="font-family:'Inter',sans-serif; font-size:11px; font-weight:400; color:var(--text-secondary); letter-spacing:0.3px; white-space:nowrap;">
+          Where real-time rhythm meets life-changing care.
+        </div>
+
+      </div>
+
+    </div>
+    <div class="header-right">
+      <a class="btn-github" href="#" target="_blank">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
+        </svg>
+        Go to GitHub Project
+      </a>
+
+    </div>
+  </header>
+
+  <!-- ═══════════════════════════ KPI SECTION BAR ═══════════════════ -->
+  <div class="section-bar">
+    <h2>⬡ Transmission &amp; Sync KPIs</h2>
+    <div class="flex-row">
+      <div class="live-dot"></div>
+      <span class="text-mono text-muted" id="updateTime">Updated: --:-- GMT</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════ KPI ROW ══════════════════════════ -->
+  <div class="kpi-row">
+
+    <!-- Transmission Success Rate -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot"></span>Transmission Success Rate</div>
+      <div style="display:flex;align-items:flex-start;gap:12px;">
+        <div class="gauge-wrap">
+          <canvas id="gaugeChart" class="gauge-canvas"></canvas>
+          <div class="gauge-val" id="gaugeVal">98.7%</div>
+        </div>
+        <div style="flex:1">
+          <div class="gauge-sub">Historical trend</div>
+          <div style="margin-top:4px; height:32px;">
+            <canvas id="trendMini"></canvas>
+          </div>
+          <div class="trend-mini" id="trendArrow">↑ +0.3% vs yesterday</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Device Sync Reliability -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot" style="background:var(--green)"></span>Device Sync Reliability</div>
+      <div class="sync-status">
+        <div class="sync-badge">
+          <div class="pulse"></div>
+          Operational
+        </div>
+        <div class="sync-last">Last Sync: <strong style="color:var(--text-primary)">2 mins ago</strong></div>
+        <div class="sync-stats">
+          <div class="sync-stat"><span>Avg latency</span><strong>34ms</strong></div>
+          <div class="sync-stat"><span>Failures</span><strong id="syncFail">2</strong></div>
+          <div class="sync-stat"><span>Queue</span><strong>0</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Device Sync Frequency -->
+    <div class="panel">
+      <div class="panel-title"><span class="dot" style="background:var(--cyan)"></span>Device Sync Frequency</div>
+      <div style="height: 80px;">
+        <canvas id="syncFreqChart"></canvas>
+      </div>
+      <div class="trend-mini">Last 24 hrs</div>
+    </div>
+
+    <!-- Abnormal Event Frequency -->
+    <div class="panel" style="display:flex;flex-direction:column;justify-content:center;">
+      <div class="panel-title"><span class="dot" style="background:var(--amber)"></span>Abnormal Event Frequency</div>
+      <div class="abnormal-count" id="abnormalCount">5</div>
+      <div class="abnormal-sub">Last 24 hrs</div>
+      <div class="abnormal-warn">⚠ 2 require review</div>
+    </div>
+
+    <!-- AWS Pipeline -->
+    <div class="panel pipeline-panel">
+      <div class="pipeline-label">Conceptual pipeline in Serverless AWS</div>
+      <div class="pipeline-flow">
+        <div class="pipe-node">
+          <div class="pipe-icon iot active">🫀</div>
+          <div class="pipe-label">Cardiac IoT<br>Device</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pipe-icon apigw active">🌐</div>
+          <div class="pipe-label">API<br>Gateway</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pipe-icon lambda active">λ</div>
+          <div class="pipe-label">Lambda</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pipe-icon dynamo">🗄</div>
+          <div class="pipe-label">DynamoDB</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pipe-icon s3">🪣</div>
+          <div class="pipe-label">S3</div>
+        </div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node">
+          <div class="pipe-icon cw">📊</div>
+          <div class="pipe-label">CloudWatch</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═══════════════════════════ BOTTOM GRID ═══════════════════════ -->
+  <div class="bottom-grid" style="margin-top:10px;">
+
+    <!-- Patient Adherence Bar Chart -->
+    <div class="panel chart-panel">
+      <div class="panel-title"><span class="dot" style="background:var(--blue-bright)"></span>Patient Adherence</div>
+      <div style="height: 140px; position:relative;">
+        <canvas id="adherenceChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Cardiac Event Heatmap -->
+    <div class="panel" style="display:flex;flex-direction:column;">
+      <div class="panel-title"><span class="dot" style="background:var(--red)"></span>Cardiac Event Heatmap</div>
+      <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);margin-bottom:4px;text-align:center;">Time of Day vs. Day of Week</div>
+      <div id="heatmap" class="heatmap-grid"></div>
+      <div class="hm-legend">
+        <span>0</span>
+        <div class="hm-legend-bar"></div>
+        <span>30</span>
+      </div>
+    </div>
+
+    <!-- Patient Vitals Trending -->
+    <div class="panel chart-panel">
+      <div class="panel-title"><span class="dot" style="background:var(--cyan)"></span>Patient Vitals Trending</div>
+      <div style="height: 140px; position:relative;">
+        <canvas id="vitalsChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Recent Device Events -->
+    <div class="panel events-panel">
+      <div class="panel-title">
+        <span class="dot" style="background:var(--amber)"></span>Recent Device Events
+        <span style="margin-left:auto;font-size:9px;color:var(--green);font-family:var(--mono);">LIVE</span>
+      </div>
+      <table class="events-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Patient ID</th>
+            <th>Device ID</th>
+            <th>Event Type</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody">
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════ CONFIG ═══════════════════════════ */
+Chart.defaults.color = '#475569';
+Chart.defaults.font.family = "'JetBrains Mono', monospace";
+
+/* ═══════════════════════════ API CONFIG ═══════════════════════════ */
+const API_BASE = 'https://5gzmj1ltf7.execute-api.eu-north-1.amazonaws.com/dev';
+
+async function apiFetch(path) {
+  try {
+    const res = await fetch(API_BASE + path);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    console.warn(`API error [${path}]:`, e.message);
+    return null;
+  }
+}
+
+/* ═══════════════════════════ UTILITIES ═══════════════════════════ */
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : ''; }
+
+/* ═══════════════════════════ GAUGE CHART ═══════════════════════════ */
+const gaugeCtx = document.getElementById('gaugeChart').getContext('2d');
+let gaugeValue = 0;
+
+const gaugeChart = new Chart(gaugeCtx, {
+  type: 'doughnut',
+  data: {
+    datasets: [{
+      data: [0, 100],
+      backgroundColor: ['#22c55e', 'rgba(255,255,255,0.04)'],
+      borderWidth: 0,
+      circumference: 180,
+      rotation: 270,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '74%',
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    animation: { duration: 800, easing: 'easeInOutQuart' }
+  }
+});
+
+/* ═══════════════════════════ TREND MINI SPARK ═══════════════════════════ */
+const trendCtx = document.getElementById('trendMini').getContext('2d');
+const trendSparkData = Array.from({length: 20}, () => 0);
+
+const trendSparkChart = new Chart(trendCtx, {
+  type: 'line',
+  data: {
+    labels: trendSparkData.map((_,i) => i),
+    datasets: [{
+      data: trendSparkData,
+      borderColor: '#22c55e',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      backgroundColor: 'rgba(34,197,94,0.08)',
+      tension: 0.4
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: { enabled: false } },
+    scales: { x: { display: false }, y: { display: false } },
+    animation: false
+  }
+});
+
+/* ═══════════════════════════ SYNC FREQ CHART ═══════════════════════════ */
+const syncCtx = document.getElementById('syncFreqChart').getContext('2d');
+
+const syncFreqChart = new Chart(syncCtx, {
+  type: 'line',
+  data: {
+    labels: Array.from({length: 24}, (_, i) => `${i.toString().padStart(2,'0')}:00`),
+    datasets: [{
+      data: Array(24).fill(0),
+      borderColor: '#22d3ee',
+      borderWidth: 1.5,
+      pointRadius: 0,
+      fill: true,
+      backgroundColor: 'rgba(34,211,238,0.08)',
+      tension: 0.5
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: {
+      backgroundColor: '#0d1a36',
+      borderColor: 'rgba(82,138,255,0.3)',
+      borderWidth: 1,
+      titleColor: '#94a3b8',
+      bodyColor: '#22d3ee',
+      titleFont: { family: "'JetBrains Mono', monospace", size: 9 },
+      bodyFont:  { family: "'JetBrains Mono', monospace", size: 10 },
+    }},
+    scales: {
+      x: { ticks: { maxTicksLimit: 4, font: { size: 8 }, color: '#475569' }, grid: { color: 'rgba(255,255,255,0.03)' } },
+      y: { min: 0, ticks: { stepSize: 2, font: { size: 8 }, color: '#475569' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+    },
+    animation: false
+  }
+});
+
+/* ═══════════════════════════ ADHERENCE BAR CHART ═══════════════════════════ */
+const adherenceCtx = document.getElementById('adherenceChart').getContext('2d');
+
+const adherenceChart = new Chart(adherenceCtx, {
+  type: 'bar',
+  data: { labels: [], datasets: [{ data: [], backgroundColor: [], borderColor: [], borderWidth: 1, borderRadius: 3 }] },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: '#0d1a36', borderColor: 'rgba(82,138,255,0.3)', borderWidth: 1,
+        callbacks: { label: ctx => `${ctx.raw.toFixed(1)}% adherence` },
+        titleFont: { family: "'JetBrains Mono', monospace", size: 9 },
+        bodyFont:  { family: "'JetBrains Mono', monospace", size: 10 },
+      }
+    },
+    scales: {
+      x: { ticks: { font: { size: 8 }, color: '#475569', maxRotation: 45 }, grid: { display: false } },
+      y: { min: 0, max: 100, ticks: { stepSize: 25, font: { size: 8 }, color: '#475569', callback: v => v + '%' }, grid: { color: 'rgba(255,255,255,0.04)' } }
+    },
+    animation: { duration: 600 }
+  }
+});
+
+/* ═══════════════════════════ HEATMAP ═══════════════════════════ */
+const DAYS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const BUCKETS = ['00','03','06','09','12','15','18'];
+let hmData = Array.from({length: 7}, () => Array(7).fill(0));
+
+function hmColor(val, maxVal) {
+  if (!maxVal) return 'rgba(15,32,68,0.8)';
+  const r = val / maxVal;
+  if (r < 0.05) return 'rgba(15,32,68,0.8)';
+  if (r < 0.2)  return 'rgba(26,58,110,0.85)';
+  if (r < 0.4)  return 'rgba(34,85,184,0.85)';
+  if (r < 0.6)  return 'rgba(59,130,246,0.85)';
+  if (r < 0.75) return 'rgba(234,179,8,0.75)';
+  if (r < 0.9)  return 'rgba(249,115,22,0.8)';
+  return 'rgba(239,68,68,0.85)';
+}
+
+function buildHeatmap() {
+  const hm = document.getElementById('heatmap');
+  hm.innerHTML = '';
+  const maxVal = Math.max(...hmData.flat(), 1);
+  const colLabels = BUCKETS;
+  const blank = document.createElement('div');
+  hm.appendChild(blank);
+  colLabels.forEach(c => {
+    const l = document.createElement('div'); l.className = 'hm-label'; l.textContent = c; hm.appendChild(l);
+  });
+  hmData.forEach((row, ri) => {
+    const rl = document.createElement('div'); rl.className = 'hm-label'; rl.textContent = DAYS[ri]; hm.appendChild(rl);
+    row.forEach((val) => {
+      const cell = document.createElement('div');
+      cell.className = 'hm-cell';
+      cell.style.background = hmColor(val, maxVal);
+      cell.setAttribute('data-val', val + ' events');
+      cell.title = `${val} events`;
+      hm.appendChild(cell);
+    });
+  });
+}
+buildHeatmap();
+
+/* ═══════════════════════════ VITALS CHART ═══════════════════════════ */
+const vitalsCtx = document.getElementById('vitalsChart').getContext('2d');
+const vitalsLabels = Array.from({length: 20}, (_, i) => `T${i+1}`);
+const hrData  = Array(20).fill(null);
+const bpData  = Array(20).fill(null);
+
+const vitalsChart = new Chart(vitalsCtx, {
+  type: 'line',
+  data: {
+    labels: vitalsLabels,
+    datasets: [
+      {
+        label: 'Average Heart Rate',
+        data: hrData,
+        borderColor: '#3b82f6',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.4
+      },
+      {
+        label: 'Average BP',
+        data: bpData,
+        borderColor: '#ef4444',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0.4
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        display: true,
+        position: 'top',
+        labels: {
+          font: { size: 9, family: "'JetBrains Mono', monospace" },
+          color: '#94a3b8',
+          boxWidth: 12,
+          padding: 8
+        }
+      },
+      tooltip: {
+        backgroundColor: '#0d1a36',
+        borderColor: 'rgba(82,138,255,0.3)',
+        borderWidth: 1,
+        titleFont: { family: "'JetBrains Mono', monospace", size: 9 },
+        bodyFont:  { family: "'JetBrains Mono', monospace", size: 10 },
+      }
+    },
+    scales: {
+      x: {
+        ticks: { maxTicksLimit: 5, font: { size: 8 }, color: '#475569' },
+        grid: { color: 'rgba(255,255,255,0.03)' }
+      },
+      y: {
+        min: 55, max: 145,
+        ticks: { stepSize: 30, font: { size: 8 }, color: '#475569' },
+        grid: { color: 'rgba(255,255,255,0.04)' }
+      }
+    },
+    animation: false
+  }
+});
+
+/* ═══════════════════════════ EVENTS TABLE ═══════════════════════════ */
+const EVENT_ICONS = {
+  'Vitals Update': '💓', 'Abnormal Beat': '⚡', 'Battery Low': '🔋',
+  'Data Sync': '🔄', 'Device Health': '🖥', 'Sync Error': '⚠',
+  'Transmission Failed': '📡',
+};
+
+function renderEvents(events) {
+  const tbody = document.getElementById('eventsBody');
+  if (!events || !events.length) return;
+  tbody.innerHTML = events.slice(0, 6).map(e => {
+    const icon = EVENT_ICONS[e.eventType] || '📋';
+    const status = e.status || 'alerted';
+    return `
+      <tr>
+        <td style="color:var(--text-muted);white-space:nowrap;">${e.time || ''}</td>
+        <td style="color:var(--blue-bright);">${e.patientId || ''}</td>
+        <td style="color:var(--text-secondary);font-size:9px;">${e.deviceId || ''}</td>
+        <td><span class="event-type-tag">${icon} ${e.eventType || ''}</span></td>
+        <td><span class="status-pill ${status}">${cap(status)}</span></td>
+      </tr>`;
+  }).join('');
+}
+
+/* ═══════════════════════════ TIMESTAMP ═══════════════════════════ */
+function updateTimestamp() {
+  const now = new Date();
+  const h = now.getUTCHours().toString().padStart(2,'0');
+  const m = now.getUTCMinutes().toString().padStart(2,'0');
+  document.getElementById('updateTime').textContent = `Updated: ${h}:${m} GMT`;
+}
+
+/* ═══════════════════════════ PIPELINE ANIMATION ═══════════════════════════ */
+function pipelineAnim() {
+  document.querySelectorAll('.pipe-icon').forEach((ic, i) => {
+    setTimeout(() => {
+      ic.classList.add('active');
+      setTimeout(() => ic.classList.remove('active'), 600);
+    }, i * 180);
+  });
+}
+
+/* ═══════════════════════════ API DATA FETCHERS ═══════════════════════════ */
+
+// Fetches KPIs → updates gauge, sync card, abnormal counter (every 10s)
+async function fetchKPIs() {
+  const data = await apiFetch('/dashboard/kpis');
+  if (!data) return;
+
+  // Gauge
+  const txRate = data.transmissionSuccessRate;
+  gaugeValue = typeof txRate === 'object' ? txRate.value : parseFloat(txRate) || 0;
+  gaugeChart.data.datasets[0].data = [gaugeValue, 100 - gaugeValue];
+  gaugeChart.update();
+  document.getElementById('gaugeVal').textContent = gaugeValue.toFixed(1) + '%';
+
+  // Trend spark — shift in new value
+  trendSparkChart.data.datasets[0].data.shift();
+  trendSparkChart.data.datasets[0].data.push(gaugeValue);
+  trendSparkChart.update('none');
+
+  // Trend arrow
+  const delta = typeof txRate === 'object' ? txRate.trendDelta : 0;
+  const dir   = typeof txRate === 'object' ? txRate.trendDirection : 'flat';
+  const arrow = dir === 'up' ? '↑' : dir === 'down' ? '↓' : '→';
+  const sign  = delta >= 0 ? '+' : '';
+  document.getElementById('trendArrow').textContent = `${arrow} ${sign}${delta}% vs yesterday`;
+
+  // Sync reliability card
+  const sync = data.syncReliability || {};
+  document.getElementById('syncFail').textContent = sync.syncFailures ?? 0;
+
+  // Abnormal counter
+  const ab = data.abnormalEvents || {};
+  const abCount = ab.count24h ?? 0;
+  document.getElementById('abnormalCount').textContent = abCount;
+
+  updateTimestamp();
+}
+
+// Fetches sync frequency → updates line chart (every 30s)
+async function fetchSyncFrequency() {
+  const data = await apiFetch('/dashboard/sync-frequency');
+  if (!data || !data.labels) return;
+  syncFreqChart.data.labels = data.labels;
+  syncFreqChart.data.datasets[0].data = data.values;
+  syncFreqChart.update('none');
+}
+
+// Fetches adherence → updates bar chart (every 60s)
+async function fetchAdherence() {
+  const data = await apiFetch('/dashboard/adherence');
+  if (!data || !data.patients || !data.patients.length) return;
+  const labels = data.patients.map(p => p.patientId);
+  const values = data.patients.map(p => p.adherence);
+  adherenceChart.data.labels = labels;
+  adherenceChart.data.datasets[0].data   = values;
+  adherenceChart.data.datasets[0].backgroundColor = values.map(v => v >= 80 ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.4)');
+  adherenceChart.data.datasets[0].borderColor      = values.map(v => v >= 80 ? '#3b82f6' : 'rgba(59,130,246,0.5)');
+  adherenceChart.update();
+}
+
+// Fetches vitals trend → updates dual-line chart (every 30s)
+async function fetchVitalsTrend() {
+  const data = await apiFetch('/dashboard/vitals-trend');
+  if (!data || !data.heartRate || !data.heartRate.length) return;
+  vitalsChart.data.labels = data.labels || data.heartRate.map((_, i) => `T${i+1}`);
+  vitalsChart.data.datasets[0].data = data.heartRate;
+  vitalsChart.data.datasets[1].data = data.bloodPressure;
+  vitalsChart.update('none');
+}
+
+// Fetches heatmap matrix → rebuilds heatmap grid (every 60s)
+async function fetchHeatmap() {
+  const data = await apiFetch('/dashboard/heatmap');
+  if (!data || !data.matrix) return;
+  const dayOrder = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const bucketOrder = ['00','03','06','09','12','15','18'];
+  const apiDays    = data.days    || dayOrder;
+  const apiBuckets = data.timeBuckets || bucketOrder;
+
+  hmData = dayOrder.map(day => {
+    const apiIdx = apiDays.indexOf(day);
+    if (apiIdx === -1) return Array(7).fill(0);
+    return bucketOrder.map(bucket => {
+      const bi = apiBuckets.indexOf(bucket);
+      return bi !== -1 && data.matrix[apiIdx] ? (data.matrix[apiIdx][bi] || 0) : 0;
+    });
+  });
+  buildHeatmap();
+}
+
+// Fetches recent events → updates events table (every 5s)
+async function fetchRecentEvents() {
+  const data = await apiFetch('/dashboard/recent-events');
+  if (!data || !data.events) return;
+  renderEvents(data.events);
+  pipelineAnim();
+}
+
+/* ═══════════════════════════ BOOTSTRAP & POLLING ═══════════════════════════ */
+
+// Initial load — fetch everything at once
+async function initialLoad() {
+  await Promise.allSettled([
+    fetchKPIs(),
+    fetchSyncFrequency(),
+    fetchAdherence(),
+    fetchVitalsTrend(),
+    fetchHeatmap(),
+    fetchRecentEvents(),
+  ]);
+}
+
+initialLoad();
+
+// Polling intervals
+setInterval(fetchKPIs,         10_000);   // KPIs every 10s
+setInterval(fetchRecentEvents,  5_000);   // Events table every 5s
+setInterval(fetchSyncFrequency, 30_000);  // Sync chart every 30s
+setInterval(fetchVitalsTrend,   30_000);  // Vitals chart every 30s
+setInterval(fetchAdherence,     60_000);  // Adherence every 60s
+setInterval(fetchHeatmap,       60_000);  // Heatmap every 60s
+setInterval(pipelineAnim,        6_000);  // Pipeline animation
+updateTimestamp();
+
+</script>
+</body>
+</html>
