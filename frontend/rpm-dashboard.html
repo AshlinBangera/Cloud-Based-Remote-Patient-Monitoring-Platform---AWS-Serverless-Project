@@ -546,6 +546,47 @@
 
   /* ─── Chart common ───────────────────────────────────────────── */
   .chart-container { position: relative; width: 100%; }
+
+  /* ─── Risk score rows ────────────────────────────────────────── */
+  .risk-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(82,138,255,0.1);
+    cursor: pointer; transition: background 0.15s;
+  }
+  .risk-row:hover { background: rgba(255,255,255,0.06); }
+  .risk-badge {
+    font-size: 9px; font-weight: 700; font-family: var(--mono);
+    padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  }
+  .risk-bar-wrap { flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 2px; }
+  .risk-bar { height: 4px; border-radius: 2px; transition: width 0.6s ease; }
+
+  /* ─── Alert rows ─────────────────────────────────────────────── */
+  .alert-row {
+    display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px;
+    border-radius: 6px; background: rgba(239,68,68,0.06);
+    border: 1px solid rgba(239,68,68,0.15); font-size: 11px;
+  }
+  .alert-row .ack-btn {
+    margin-left: auto; font-size: 9px; font-family: var(--mono);
+    padding: 3px 8px; border-radius: 4px; cursor: pointer;
+    background: rgba(34,197,94,0.15); color: var(--green);
+    border: 1px solid rgba(34,197,94,0.3);
+    white-space: nowrap; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .alert-row .ack-btn:hover { background: rgba(34,197,94,0.3); }
+
+  @keyframes bell-shake {
+    0%,100% { transform: rotate(0deg); }
+    20% { transform: rotate(-15deg); }
+    40% { transform: rotate(15deg); }
+    60% { transform: rotate(-10deg); }
+    80% { transform: rotate(10deg); }
+  }
+  .bell-shake { animation: bell-shake 0.5s ease; }
 </style>
 </head>
 <body>
@@ -594,7 +635,14 @@
 
     </div>
     <div class="header-right">
-      <a class="btn-github" href="#" target="_blank">
+      <!-- Notification Bell -->
+      <div id="notifBell" style="position:relative;cursor:pointer;margin-right:12px;padding:6px;border-radius:8px;border:1px solid rgba(82,138,255,0.18);display:flex;align-items:center;gap:6px;" onclick="scrollToAlerts()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span id="bellCount" style="display:none;background:#ef4444;color:#fff;font-size:9px;font-family:'JetBrains Mono',monospace;font-weight:700;padding:1px 5px;border-radius:10px;min-width:16px;text-align:center;">0</span>
+      </div>
+      <a class="btn-github" href="https://github.com/AshlinBangera/Cloud-Based-Remote-Patient-Monitoring-Platform---AWS-Serverless-Project" target="_blank">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
           <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/>
         </svg>
@@ -758,6 +806,66 @@
       </table>
     </div>
 
+  </div>
+
+  <!-- ══════════════════════ PATIENT RISK & ALERTS ══════════════════════ -->
+  <div class="section-bar" style="margin-top:10px;" id="alertsSection">
+    <h2>⬡ Patient Risk &amp; Active Alerts</h2>
+    <div class="flex-row">
+      <span id="activeAlertCount" style="font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--amber);">Loading...</span>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+
+    <!-- Patient Risk Scores -->
+    <div class="panel" style="padding:14px;">
+      <div class="panel-title" style="margin-bottom:12px;">
+        <span class="dot" style="background:var(--red)"></span>Patient Risk Scores
+        <span style="margin-left:auto;font-size:9px;color:var(--text-muted);font-family:var(--mono);">Updated every 30s</span>
+      </div>
+      <div id="riskScoreList" style="display:flex;flex-direction:column;gap:8px;">
+        <!-- Populated by fetchRiskScores() -->
+        <div style="color:var(--text-muted);font-size:11px;font-family:var(--mono);">Loading risk scores...</div>
+      </div>
+    </div>
+
+    <!-- Active Alerts + Response Time -->
+    <div style="display:flex;flex-direction:column;gap:10px;">
+
+      <!-- Response Time KPI -->
+      <div class="panel" style="padding:14px;">
+        <div class="panel-title" style="margin-bottom:10px;">
+          <span class="dot" style="background:var(--amber)"></span>Alert Response Time
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;">
+          <div style="text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);margin-bottom:4px;">AVG</div>
+            <div id="rtAvg" style="font-size:18px;font-weight:700;font-family:'Rajdhani',sans-serif;color:var(--amber);">—</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);margin-bottom:4px;">FASTEST</div>
+            <div id="rtFast" style="font-size:18px;font-weight:700;font-family:'Rajdhani',sans-serif;color:var(--green);">—</div>
+          </div>
+          <div style="text-align:center;">
+            <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);margin-bottom:4px;">SLOWEST</div>
+            <div id="rtSlow" style="font-size:18px;font-weight:700;font-family:'Rajdhani',sans-serif;color:var(--red);">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Active Alerts Table -->
+      <div class="panel" style="padding:14px;flex:1;">
+        <div class="panel-title" style="margin-bottom:10px;">
+          <span class="dot" style="background:#ef4444;animation:pulse-anim 1.5s infinite;"></span>Active Alerts
+          <span id="activeAlertBadge" style="margin-left:8px;background:rgba(239,68,68,0.15);color:#ef4444;font-size:9px;font-family:var(--mono);padding:2px 6px;border-radius:4px;">0 pending</span>
+        </div>
+        <div id="activeAlertsList" style="display:flex;flex-direction:column;gap:6px;max-height:200px;overflow-y:auto;">
+          <div style="color:var(--text-muted);font-size:11px;font-family:var(--mono);">No active alerts</div>
+        </div>
+      </div>
+
+    </div>
   </div>
 
 </div>
@@ -1158,6 +1266,8 @@ async function initialLoad() {
     fetchVitalsTrend(),
     fetchHeatmap(),
     fetchRecentEvents(),
+    fetchRiskScores(),
+    fetchActiveAlerts(),
   ]);
 }
 
@@ -1170,8 +1280,184 @@ setInterval(fetchSyncFrequency, 30_000);  // Sync chart every 30s
 setInterval(fetchVitalsTrend,   30_000);  // Vitals chart every 30s
 setInterval(fetchAdherence,     60_000);  // Adherence every 60s
 setInterval(fetchHeatmap,       60_000);  // Heatmap every 60s
+setInterval(fetchRiskScores,    30_000);  // Risk scores every 30s
+setInterval(fetchActiveAlerts,  10_000);  // Active alerts every 10s
 setInterval(pipelineAnim,        6_000);  // Pipeline animation
 updateTimestamp();
+
+/* ═══════════════════════ RISK SCORE PANEL ═══════════════════════ */
+const PATIENTS = ['P001','P002','P003','P004','P005'];
+const RISK_COLORS = {
+  LOW:      { bg: 'rgba(34,197,94,0.15)',  text: '#22c55e', bar: '#22c55e'  },
+  MEDIUM:   { bg: 'rgba(245,158,11,0.15)', text: '#f59e0b', bar: '#f59e0b'  },
+  HIGH:     { bg: 'rgba(249,115,22,0.15)', text: '#f97316', bar: '#f97316'  },
+  CRITICAL: { bg: 'rgba(239,68,68,0.15)',  text: '#ef4444', bar: '#ef4444'  },
+  UNKNOWN:  { bg: 'rgba(148,163,184,0.1)', text: '#94a3b8', bar: '#94a3b8'  },
+};
+
+const PATIENT_NAMES = {
+  P001: 'Alice Brennan',
+  P002: 'Brian Doyle',
+  P003: 'Catherine Murphy',
+  P004: "David O'Sullivan",
+  P005: 'Eleanor Walsh',
+};
+
+async function fetchRiskScores() {
+  const results = await Promise.allSettled(
+    PATIENTS.map(p => apiFetch(`/patients/${p}/risk`))
+  );
+
+  const list = document.getElementById('riskScoreList');
+  const rows = [];
+
+  results.forEach((r, i) => {
+    const pid  = PATIENTS[i];
+    const data = r.status === 'fulfilled' ? r.value : null;
+    if (!data) return;
+
+    const level  = data.riskLevel  || 'UNKNOWN';
+    const score  = data.riskScore  || 0;
+    const color  = RISK_COLORS[level] || RISK_COLORS.UNKNOWN;
+    const factor = data.factors && data.factors[0]
+      ? data.factors[0].factor
+      : 'No factors';
+    const name = PATIENT_NAMES[pid] || pid;
+
+    rows.push(`
+      <div class="risk-row" title="${factor}">
+        <span style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);min-width:28px;">${pid}</span>
+        <span style="font-size:11px;color:var(--text-primary);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
+        <div class="risk-bar-wrap">
+          <div class="risk-bar" style="width:${score}%;background:${color.bar};"></div>
+        </div>
+        <span style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);min-width:28px;text-align:right;">${Math.round(score)}</span>
+        <span class="risk-badge" style="background:${color.bg};color:${color.text};">${level}</span>
+      </div>
+    `);
+  });
+
+  list.innerHTML = rows.length
+    ? rows.join('')
+    : '<div style="color:var(--text-muted);font-size:11px;font-family:var(--mono);">No risk data available</div>';
+}
+
+/* ═══════════════════════ ACTIVE ALERTS PANEL ═══════════════════════ */
+let _lastAlertCount = 0;
+
+async function fetchActiveAlerts() {
+  const allAlerts = [];
+  const rtTimes   = [];
+
+  await Promise.allSettled(
+    PATIENTS.map(async p => {
+      const data = await apiFetch(`/patients/${p}/alerts`);
+      if (!data) return;
+
+      // Collect active alerts
+      (data.alerts || []).forEach(a => {
+        if (a.status === 'ACTIVE') allAlerts.push({ ...a, patientName: PATIENT_NAMES[p] || p });
+      });
+
+      // Collect response times for KPI card
+      if (data.avgResponseTimeSec != null) rtTimes.push(data.avgResponseTimeSec);
+    })
+  );
+
+  // Sort by detectedAt — most recent first
+  allAlerts.sort((a, b) => (b.detectedAt || '').localeCompare(a.detectedAt || ''));
+
+  const count = allAlerts.length;
+
+  // Update bell
+  const bell      = document.getElementById('bellCount');
+  const bellWrap  = document.getElementById('notifBell');
+  bell.textContent = count;
+  bell.style.display = count > 0 ? 'inline-block' : 'none';
+
+  // Shake bell if new alerts appeared
+  if (count > _lastAlertCount) {
+    bellWrap.querySelector('svg').style.stroke = '#ef4444';
+    bellWrap.classList.add('bell-shake');
+    setTimeout(() => bellWrap.classList.remove('bell-shake'), 600);
+  } else if (count === 0) {
+    bellWrap.querySelector('svg').style.stroke = '#94a3b8';
+  }
+  _lastAlertCount = count;
+
+  // Update section badge
+  document.getElementById('activeAlertCount').textContent =
+    count > 0 ? `${count} alert${count > 1 ? 's' : ''} pending acknowledgement` : 'All alerts acknowledged';
+  document.getElementById('activeAlertBadge').textContent = `${count} pending`;
+
+  // Render alert rows
+  const list = document.getElementById('activeAlertsList');
+  if (!allAlerts.length) {
+    list.innerHTML = '<div style="color:var(--text-muted);font-size:11px;font-family:var(--mono);">No active alerts — all acknowledged</div>';
+  } else {
+    list.innerHTML = allAlerts.map(a => {
+      const elapsed = _elapsed(a.detectedAt);
+      const typeLabel = (a.alertType || 'ALERT').replace(/_/g, ' ');
+      return `
+        <div class="alert-row">
+          <div style="display:flex;flex-direction:column;gap:2px;flex:1;min-width:0;">
+            <span style="font-size:10px;font-weight:600;color:#ef4444;font-family:var(--mono);">${typeLabel}</span>
+            <span style="font-size:10px;color:var(--text-secondary);">${a.patientName} · ${a.patientId}</span>
+            <span style="font-size:9px;color:var(--text-muted);font-family:var(--mono);">Detected ${elapsed} ago · HR ${a.heartRate} bpm · SpO2 ${a.spo2}%</span>
+          </div>
+          <button class="ack-btn" onclick="acknowledgeAlert('${a.alertId}', '${a.patientId}', this)">Acknowledge</button>
+        </div>`;
+    }).join('');
+  }
+
+  // Update response time KPI card
+  if (rtTimes.length) {
+    const avg     = Math.round(rtTimes.reduce((s, v) => s + v, 0) / rtTimes.length);
+    const fastest = Math.min(...rtTimes);
+    const slowest = Math.max(...rtTimes);
+    document.getElementById('rtAvg').textContent  = _fmtTime(avg);
+    document.getElementById('rtFast').textContent = _fmtTime(fastest);
+    document.getElementById('rtSlow').textContent = _fmtTime(slowest);
+  }
+}
+
+async function acknowledgeAlert(alertId, patientId, btn) {
+  btn.textContent = '...';
+  btn.disabled    = true;
+  try {
+    const res = await fetch(`${API_BASE}/alerts/${alertId}/acknowledge`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ acknowledgedBy: 'Dashboard clinician' }),
+    });
+    if (res.ok) {
+      btn.textContent = 'Done';
+      btn.style.color = '#22c55e';
+      setTimeout(fetchActiveAlerts, 800);
+    } else {
+      btn.textContent = 'Error';
+    }
+  } catch {
+    btn.textContent = 'Error';
+  }
+}
+
+function scrollToAlerts() {
+  document.getElementById('alertsSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+function _fmtTime(sec) {
+  if (!sec || sec < 0) return '—';
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return s > 0 ? `${m}m ${s}s` : `${m}m`;
+}
+
+function _elapsed(isoStr) {
+  if (!isoStr) return '?';
+  const diff = Math.floor((Date.now() - new Date(isoStr).getTime()) / 1000);
+  return _fmtTime(diff);
+}
 
 </script>
 </body>
