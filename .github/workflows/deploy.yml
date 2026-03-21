@@ -1,0 +1,159 @@
+name: RhythmCloud CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION:     eu-north-1
+  SAM_STACK_DEV:  rhythmcloud-dev
+  PYTHON_VERSION: "3.11"
+
+jobs:
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 1 — Lint & Test
+  # Runs on every push and every pull request
+  # ─────────────────────────────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with flake8
+        run: |
+          pip install flake8
+          # Stop build on syntax errors or undefined names
+          flake8 src/ --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warn on style issues but don't fail
+          flake8 src/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Run tests with pytest
+        run: |
+          pip install pytest pytest-cov moto[dynamodb,s3,sqs,cloudwatch]
+          pytest tests/ -v --tb=short --cov=src --cov-report=term-missing
+        env:
+          AWS_DEFAULT_REGION:    ${{ env.AWS_REGION }}
+          AWS_ACCESS_KEY_ID:     testing
+          AWS_SECRET_ACCESS_KEY: testing
+          EVENTS_TABLE:          rhythmcloud-telemetry-events-dev
+          SUMMARIES_TABLE:       rhythmcloud-patient-summaries-dev
+          AGGREGATES_TABLE:      rhythmcloud-dashboard-aggregates-dev
+          RECENT_EVENTS_TABLE:   rhythmcloud-recent-events-dev
+          DEVICE_STATUS_TABLE:   rhythmcloud-device-status-dev
+          RAW_EVENTS_BUCKET:     rhythmcloud-raw-events-test-dev
+          CLOUDWATCH_NAMESPACE:  RhythmCloud
+          ENVIRONMENT:           test
+
+  # ─────────────────────────────────────────────────────────────────
+  # JOB 2 — Build & Deploy to Dev
+  # Runs only on push to main (not on pull requests)
+  # ─────────────────────────────────────────────────────────────────
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install AWS SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ env.AWS_REGION }}
+
+      - name: SAM Build
+        run: sam build --config-env dev
+
+      - name: SAM Deploy to Dev
+        run: |
+          sam deploy \
+            --config-env dev \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+
+      - name: Print deployed API URL
+        run: |
+          echo "========================================"
+          echo "  RhythmCloud Dev API URL:"
+          aws cloudformation describe-stacks \
+            --stack-name ${{ env.SAM_STACK_DEV }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiBaseUrl'].OutputValue" \
+            --output text
+          echo "========================================"
+
+      - name: Smoke test — POST a test event
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.SAM_STACK_DEV }} \
+            --region ${{ env.AWS_REGION }} \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiBaseUrl'].OutputValue" \
+            --output text)
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST "$API_URL/events" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "patientId":          "CI-TEST-P001",
+              "deviceId":           "CI-TEST-D001",
+              "timestamp":          "2026-03-21T00:00:00Z",
+              "heartRate":          75,
+              "spo2":               98,
+              "systolicBP":         120,
+              "diastolicBP":        80,
+              "batteryLevel":       85,
+              "signalStrength":     -65,
+              "transmissionStatus": "success",
+              "syncStatus":         "synced",
+              "eventType":          "vitals"
+            }')
+
+          echo "Smoke test HTTP status: $STATUS"
+          if [ "$STATUS" != "201" ]; then
+            echo "Smoke test FAILED — expected 201, got $STATUS"
+            exit 1
+          fi
+          echo "Smoke test PASSED"
+
+      - name: Post deployment summary
+        if: always()
+        run: |
+          echo "## RhythmCloud Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | dev |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | ${{ env.AWS_REGION }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Stack | ${{ env.SAM_STACK_DEV }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Triggered by | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
