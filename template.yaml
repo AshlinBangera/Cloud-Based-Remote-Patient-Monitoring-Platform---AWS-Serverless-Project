@@ -666,6 +666,29 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/rhythmcloud-get-patient-alerts-${Environment}"
       RetentionInDays: 30
 
+  # ── Lambda: Get Patient Risk Score ───────────────────────────────────────────
+  GetPatientRiskFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "rhythmcloud-get-patient-risk-${Environment}"
+      CodeUri: src/
+      Handler: handlers.get_patient_risk.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Description: GET /patients/{patientId}/risk — composite risk score from last 50 events
+      Events:
+        GetRisk:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RhythmCloudApi
+            Path: /patients/{patientId}/risk
+            Method: GET
+
+  GetPatientRiskLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/rhythmcloud-get-patient-risk-${Environment}"
+      RetentionInDays: 30
+
   # ── CloudWatch Alarms ─────────────────────────────────────────────────────────
   HighAbnormalEventRateAlarm:
     Type: AWS::CloudWatch::Alarm
