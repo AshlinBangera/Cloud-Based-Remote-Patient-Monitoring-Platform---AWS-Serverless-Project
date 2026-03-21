@@ -31,8 +31,10 @@ from services.dynamodb_service import (
     put_recent_event,
     put_device_status,
 )
-from services.s3_service       import archive_event
-from services.metrics_service  import publish_ingest_metrics
+from services.s3_service          import archive_event
+from services.metrics_service     import publish_ingest_metrics
+from services.aggregation_service import is_abnormal_event
+from services.alerting_service    import publish_alert
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
@@ -151,22 +153,35 @@ def lambda_handler(event: dict, context) -> dict:
     except Exception as exc:
         logger.warning("CloudWatch metrics publish failed (non-fatal): %s", exc)
 
-    # ── 9. Return 201 Created ─────────────────────────────────────────────────
+    # ── 9. Publish SNS alert if event is abnormal ─────────────────────────────
+    alert_sent = False
+    if is_abnormal_event(telemetry_item):
+        try:
+            alert_sent = publish_alert(telemetry_item)
+            if alert_sent:
+                logger.info(
+                    "Clinical alert sent | patientId=%s eventId=%s",
+                    payload["patientId"], event_id
+                )
+        except Exception as exc:
+            logger.warning("Alert publish failed (non-fatal): %s", exc)
+
+    # ── 10. Return 201 Created ────────────────────────────────────────────────
     logger.info(
-        "Event ingested successfully | eventId=%s patientId=%s deviceId=%s",
-        event_id,
-        payload["patientId"],
-        payload["deviceId"],
+        "Event ingested | eventId=%s patientId=%s abnormal=%s alertSent=%s",
+        event_id, payload["patientId"],
+        is_abnormal_event(telemetry_item), alert_sent,
     )
 
     return created({
-        "message":   "Event ingested successfully.",
-        "eventId":   event_id,
-        "patientId": payload["patientId"],
-        "deviceId":  payload["deviceId"],
-        "timestamp": payload["timestamp"],
+        "message":    "Event ingested successfully.",
+        "eventId":    event_id,
+        "patientId":  payload["patientId"],
+        "deviceId":   payload["deviceId"],
+        "timestamp":  payload["timestamp"],
         "ingestedAt": ingestion_time,
-        "s3Key":     s3_key,
+        "s3Key":      s3_key,
+        "alertSent":  alert_sent,
     })
 
 

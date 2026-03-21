@@ -18,6 +18,13 @@ Parameters:
     Type: Number
     Default: 90
 
+  ClinicalAlertEmail:
+    Type: String
+    Default: ""
+    Description: >
+      Email address to receive clinical alerts for abnormal cardiac events.
+      Leave empty to disable email notifications.
+
 Globals:
   Function:
     Runtime: python3.11
@@ -40,13 +47,11 @@ Globals:
         CLOUDWATCH_NAMESPACE:    RhythmCloud
         POWERTOOLS_SERVICE_NAME: rhythmcloud
         POWERTOOLS_LOG_LEVEL:    !Ref LogLevel
-
-  Api:
-    TracingEnabled: true
+        ALERTS_TOPIC_ARN:        !Ref ClinicalAlertsTopic
 
 Resources:
 
-  # ── Lambda Layer ─────────────────────────────────────────────────────────────
+  # ── Lambda Layer ──────────────────────────────────────────────────────────────
   RhythmCloudDepsLayer:
     Type: AWS::Serverless::LayerVersion
     Properties:
@@ -60,23 +65,13 @@ Resources:
       BuildMethod: python3.11
 
   # ── API Gateway ───────────────────────────────────────────────────────────────
+  # Note: AccessLogSetting and MethodSettings logging removed.
+  # API Gateway account-level CloudWatch role not required without these.
   RhythmCloudApi:
     Type: AWS::Serverless::Api
     Properties:
       Name: !Sub "rhythmcloud-api-${Environment}"
       StageName: !Ref Environment
-      TracingEnabled: true
-      AccessLogSetting:
-        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
-        Format: '{"requestId":"$context.requestId","httpMethod":"$context.httpMethod","status":"$context.status"}'
-      MethodSettings:
-        - ResourcePath: '/*'
-          HttpMethod: '*'
-          MetricsEnabled: true
-          DataTraceEnabled: false
-          LoggingLevel: INFO
-          ThrottlingBurstLimit: 100
-          ThrottlingRateLimit: 50
       Cors:
         AllowMethods: "'GET,POST,OPTIONS'"
         AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key'"
@@ -84,12 +79,6 @@ Resources:
       Tags:
         Project: RhythmCloud
         Environment: !Ref Environment
-
-  ApiAccessLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/apigateway/rhythmcloud-${Environment}"
-      RetentionInDays: 30
 
   # ── DynamoDB: TelemetryEvents ─────────────────────────────────────────────────
   TelemetryEventsTable:
@@ -254,7 +243,6 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
       Policies:
-
         - PolicyName: DynamoDBAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -290,7 +278,6 @@ Resources:
                   - dynamodb:DescribeStream
                   - dynamodb:ListStreams
                 Resource: !GetAtt TelemetryEventsTable.StreamArn
-
         - PolicyName: S3RawEventsAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -306,7 +293,6 @@ Resources:
                 Effect: Allow
                 Action: s3:ListBucket
                 Resource: !GetAtt RawEventsBucket.Arn
-
         - PolicyName: CloudWatchMetrics
           PolicyDocument:
             Version: '2012-10-17'
@@ -316,8 +302,15 @@ Resources:
                 Action:
                   - cloudwatch:PutMetricData
                 Resource: '*'
-
-        # ── THIS WAS THE MISSING POLICY – fixes the DLQ SendMessage error ──────
+        - PolicyName: SNSPublishAlerts
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: PublishClinicalAlerts
+                Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref ClinicalAlertsTopic
         - PolicyName: SQSDLQAccess
           PolicyDocument:
             Version: '2012-10-17'
@@ -328,7 +321,6 @@ Resources:
                   - sqs:SendMessage
                   - sqs:GetQueueAttributes
                 Resource: !GetAtt KpiProcessorDLQ.Arn
-
       Tags:
         - { Key: Project,     Value: RhythmCloud }
         - { Key: Environment, Value: !Ref Environment }
@@ -360,7 +352,7 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/rhythmcloud-ingest-event-${Environment}"
       RetentionInDays: 30
 
-  # ── Lambda: KpiProcessor (stream-triggered) ───────────────────────────────────
+  # ── Lambda: KpiProcessor ──────────────────────────────────────────────────────
   KpiProcessorFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -681,6 +673,33 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
+  # ── SNS: Clinical Alerts Topic ───────────────────────────────────────────────
+  # Publishes email notifications when abnormal cardiac events are detected.
+  # Free tier: 1M publishes/month + 1000 email notifications/month.
+  ClinicalAlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub "rhythmcloud-clinical-alerts-${Environment}"
+      DisplayName: RhythmCloud Clinical Alerts
+      Tags:
+        - { Key: Project,     Value: RhythmCloud }
+        - { Key: Environment, Value: !Ref Environment }
+
+  # Email subscription — only created if ClinicalAlertEmail is provided
+  ClinicalAlertsEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref ClinicalAlertsTopic
+      Protocol: email
+      Endpoint: !Ref ClinicalAlertEmail
+
+  # ── IAM: SNS publish permission for Lambda ────────────────────────────────────
+
+# ── Conditions ────────────────────────────────────────────────────────────────
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref ClinicalAlertEmail, ""]]
+
 # ── Outputs ────────────────────────────────────────────────────────────────────
 Outputs:
 
@@ -721,3 +740,7 @@ Outputs:
   KpiProcessorDLQUrl:
     Value: !Ref KpiProcessorDLQ
     Export: { Name: !Sub "RhythmCloudKpiDLQ-${Environment}" }
+
+  ClinicalAlertsTopicArn:
+    Value: !Ref ClinicalAlertsTopic
+    Export: { Name: !Sub "RhythmCloudAlertsTopicArn-${Environment}" }
