@@ -216,7 +216,7 @@
   /* ─── KPI Row ────────────────────────────────────────────────── */
   .kpi-row {
     display: grid;
-    grid-template-columns: 1.4fr 1fr 1.2fr 1fr 1.8fr;
+    grid-template-columns: 1.4fr 1fr 1.2fr 1fr;
     gap: 10px;
     padding: 12px 18px 0;
   }
@@ -761,42 +761,28 @@
       <div class="abnormal-warn">⚠ 2 require review</div>
     </div>
 
-    <!-- AWS Pipeline -->
-    <div class="panel pipeline-panel">
-      <div class="pipeline-label">Conceptual pipeline in Serverless AWS</div>
-      <div class="pipeline-flow">
-        <div class="pipe-node">
-          <div class="pipe-icon iot active">🫀</div>
-          <div class="pipe-label">Cardiac IoT<br>Device</div>
-        </div>
+  </div>
+
+  <!-- AWS Pipeline — full width row -->
+  <div style="padding:0 18px;margin-top:10px;">
+    <div class="panel pipeline-panel" style="display:flex;align-items:center;justify-content:space-between;padding:12px 20px;">
+      <div class="pipeline-label" style="white-space:nowrap;margin-right:16px;">Conceptual pipeline in Serverless AWS</div>
+      <div class="pipeline-flow" style="flex:1;justify-content:space-evenly;">
+        <div class="pipe-node"><div class="pipe-icon iot active">🫀</div><div class="pipe-label">Cardiac IoT<br>Device</div></div>
         <div class="pipe-arrow">→</div>
-        <div class="pipe-node">
-          <div class="pipe-icon apigw active">🌐</div>
-          <div class="pipe-label">API<br>Gateway</div>
-        </div>
+        <div class="pipe-node"><div class="pipe-icon apigw active">🌐</div><div class="pipe-label">API<br>Gateway</div></div>
         <div class="pipe-arrow">→</div>
-        <div class="pipe-node">
-          <div class="pipe-icon lambda active">λ</div>
-          <div class="pipe-label">Lambda</div>
-        </div>
+        <div class="pipe-node"><div class="pipe-icon lambda active">λ</div><div class="pipe-label">Lambda</div></div>
         <div class="pipe-arrow">→</div>
-        <div class="pipe-node">
-          <div class="pipe-icon dynamo">🗄</div>
-          <div class="pipe-label">DynamoDB</div>
-        </div>
+        <div class="pipe-node"><div class="pipe-icon dynamo">🗄</div><div class="pipe-label">DynamoDB</div></div>
         <div class="pipe-arrow">→</div>
-        <div class="pipe-node">
-          <div class="pipe-icon s3">🪣</div>
-          <div class="pipe-label">S3</div>
-        </div>
+        <div class="pipe-node"><div class="pipe-icon s3">🪣</div><div class="pipe-label">S3</div></div>
         <div class="pipe-arrow">→</div>
-        <div class="pipe-node">
-          <div class="pipe-icon cw">📊</div>
-          <div class="pipe-label">CloudWatch</div>
-        </div>
+        <div class="pipe-node"><div class="pipe-icon cw">📊</div><div class="pipe-label">CloudWatch</div></div>
+        <div class="pipe-arrow">→</div>
+        <div class="pipe-node"><div class="pipe-icon" style="font-size:16px;">📧</div><div class="pipe-label">SNS<br>Alerts</div></div>
       </div>
     </div>
-
   </div>
 
   <!-- ═══════════════════════════ BOTTOM GRID ═══════════════════════ -->
@@ -858,7 +844,7 @@
     <h2>⬡ SpO2 Trending &amp; Device Health</h2>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+  <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:10px;margin-top:10px;">
 
     <!-- SpO2 Trending Chart -->
     <div class="panel chart-panel" style="padding:14px;">
@@ -877,7 +863,7 @@
         <span class="dot" style="background:var(--cyan)"></span>Device Health
         <span style="margin-left:auto;font-size:9px;color:var(--text-muted);font-family:var(--mono);">Battery &amp; Signal</span>
       </div>
-      <div id="deviceHealthGrid" style="display:flex;flex-direction:column;gap:7px;">
+      <div id="deviceHealthGrid" style="display:flex;flex-direction:column;gap:5px;">
         <div style="color:var(--text-muted);font-size:11px;font-family:var(--mono);">Loading...</div>
       </div>
     </div>
@@ -892,7 +878,7 @@
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+  <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:10px;margin-top:10px;">
 
     <!-- Patient Risk Scores -->
     <div class="panel" style="padding:14px;">
