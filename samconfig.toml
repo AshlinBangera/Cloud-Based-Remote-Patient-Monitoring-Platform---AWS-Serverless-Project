@@ -1,0 +1,50 @@
+# samconfig.toml
+# SAM CLI deployment configuration for RhythmCloud
+# Usage: sam deploy --config-env dev
+
+version = 0.1
+
+# ─── Development ──────────────────────────────────────────────────────────────
+[dev.deploy.parameters]
+stack_name          = "rhythmcloud-dev"
+region              = "eu-north-1"
+confirm_changeset   = false
+capabilities        = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3          = true
+s3_prefix           = "rhythmcloud-dev"
+parameter_overrides = "Environment=dev LogLevel=DEBUG DataRetentionDays=30"
+tags                = "Project=RhythmCloud Environment=dev"
+
+[dev.build.parameters]
+use_container = false
+parallel      = true
+
+# ─── Staging ──────────────────────────────────────────────────────────────────
+[staging.deploy.parameters]
+stack_name          = "rhythmcloud-staging"
+region              = "eu-north-1"
+confirm_changeset   = true
+capabilities        = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3          = true
+s3_prefix           = "rhythmcloud-staging"
+parameter_overrides = "Environment=staging LogLevel=INFO DataRetentionDays=60"
+tags                = "Project=RhythmCloud Environment=staging"
+
+[staging.build.parameters]
+use_container = false
+parallel      = true
+
+# ─── Production ───────────────────────────────────────────────────────────────
+[prod.deploy.parameters]
+stack_name          = "rhythmcloud-prod"
+region              = "eu-north-1"
+confirm_changeset   = true
+capabilities        = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+resolve_s3          = true
+s3_prefix           = "rhythmcloud-prod"
+parameter_overrides = "Environment=prod LogLevel=INFO DataRetentionDays=90"
+tags                = "Project=RhythmCloud Environment=prod"
+
+[prod.build.parameters]
+use_container = false
+parallel      = true

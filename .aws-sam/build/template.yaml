@@ -1,0 +1,882 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'RhythmCloud - Cloud-Based Remote Patient Monitoring Platform
+
+  '
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+    - dev
+    - staging
+    - prod
+  LogLevel:
+    Type: String
+    Default: INFO
+    AllowedValues:
+    - DEBUG
+    - INFO
+    - WARNING
+    - ERROR
+  DataRetentionDays:
+    Type: Number
+    Default: 90
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+    Architectures:
+    - arm64
+    Tracing: Active
+    Layers:
+    - Ref: RhythmCloudDepsLayer
+    Environment:
+      Variables:
+        ENVIRONMENT:
+          Ref: Environment
+        LOG_LEVEL:
+          Ref: LogLevel
+        EVENTS_TABLE:
+          Ref: TelemetryEventsTable
+        SUMMARIES_TABLE:
+          Ref: PatientSummariesTable
+        AGGREGATES_TABLE:
+          Ref: DashboardAggregatesTable
+        RECENT_EVENTS_TABLE:
+          Ref: RecentEventsTable
+        DEVICE_STATUS_TABLE:
+          Ref: DeviceStatusTable
+        RAW_EVENTS_BUCKET:
+          Ref: RawEventsBucket
+        CLOUDWATCH_NAMESPACE: RhythmCloud
+        POWERTOOLS_SERVICE_NAME: rhythmcloud
+        POWERTOOLS_LOG_LEVEL:
+          Ref: LogLevel
+  Api:
+    TracingEnabled: true
+Resources:
+  RhythmCloudDepsLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName:
+        Fn::Sub: rhythmcloud-deps-${Environment}
+      Description: Shared Python dependencies
+      ContentUri: RhythmCloudDepsLayer
+      CompatibleRuntimes:
+      - python3.11
+      CompatibleArchitectures:
+      - arm64
+      RetentionPolicy: Delete
+    Metadata:
+      BuildMethod: python3.11
+      SamResourceId: RhythmCloudDepsLayer
+  RhythmCloudApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name:
+        Fn::Sub: rhythmcloud-api-${Environment}
+      StageName:
+        Ref: Environment
+      TracingEnabled: true
+      AccessLogSetting:
+        DestinationArn:
+          Fn::GetAtt:
+          - ApiAccessLogGroup
+          - Arn
+        Format: '{"requestId":"$context.requestId","httpMethod":"$context.httpMethod","status":"$context.status"}'
+      MethodSettings:
+      - ResourcePath: /*
+        HttpMethod: '*'
+        MetricsEnabled: true
+        DataTraceEnabled: false
+        LoggingLevel: INFO
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+      Cors:
+        AllowMethods: '''GET,POST,OPTIONS'''
+        AllowHeaders: '''Content-Type,X-Amz-Date,Authorization,X-Api-Key'''
+        AllowOrigin: '''*'''
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/apigateway/rhythmcloud-${Environment}
+      RetentionInDays: 30
+  TelemetryEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: rhythmcloud-telemetry-events-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      StreamSpecification:
+        StreamViewType: NEW_IMAGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      AttributeDefinitions:
+      - AttributeName: patientId
+        AttributeType: S
+      - AttributeName: eventId
+        AttributeType: S
+      - AttributeName: timestamp
+        AttributeType: S
+      - AttributeName: deviceId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: patientId
+        KeyType: HASH
+      - AttributeName: eventId
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: PatientTimestampIndex
+        KeySchema:
+        - AttributeName: patientId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      - IndexName: DeviceTimestampIndex
+        KeySchema:
+        - AttributeName: deviceId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+        Projection:
+          ProjectionType: INCLUDE
+          NonKeyAttributes:
+          - patientId
+          - eventType
+          - transmissionStatus
+          - syncStatus
+          - batteryLevel
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  PatientSummariesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: rhythmcloud-patient-summaries-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      AttributeDefinitions:
+      - AttributeName: patientId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: patientId
+        KeyType: HASH
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  DashboardAggregatesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: rhythmcloud-dashboard-aggregates-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      AttributeDefinitions:
+      - AttributeName: metricType
+        AttributeType: S
+      - AttributeName: periodKey
+        AttributeType: S
+      KeySchema:
+      - AttributeName: metricType
+        KeyType: HASH
+      - AttributeName: periodKey
+        KeyType: RANGE
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  RecentEventsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: rhythmcloud-recent-events-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      AttributeDefinitions:
+      - AttributeName: partitionKey
+        AttributeType: S
+      - AttributeName: sortKey
+        AttributeType: S
+      KeySchema:
+      - AttributeName: partitionKey
+        KeyType: HASH
+      - AttributeName: sortKey
+        KeyType: RANGE
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  DeviceStatusTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: rhythmcloud-device-status-${Environment}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: deviceId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: deviceId
+        KeyType: HASH
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  RawEventsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: rhythmcloud-raw-events-${AWS::AccountId}-${Environment}
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+        - Id: TierRawEventsToIA
+          Status: Enabled
+          Transitions:
+          - TransitionInDays:
+              Ref: DataRetentionDays
+            StorageClass: STANDARD_IA
+          - TransitionInDays: 365
+            StorageClass: GLACIER_IR
+          NoncurrentVersionExpiration:
+            NoncurrentDays: 30
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  KpiProcessorDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName:
+        Fn::Sub: rhythmcloud-kpi-processor-dlq-${Environment}
+      MessageRetentionPeriod: 1209600
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Fn::Sub: rhythmcloud-lambda-role-${Environment}
+      Description: Shared execution role for all RhythmCloud Lambda functions
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+      Policies:
+      - PolicyName: DynamoDBAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: TableReadWrite
+            Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:BatchWriteItem
+            - dynamodb:BatchGetItem
+            Resource:
+            - Fn::GetAtt:
+              - TelemetryEventsTable
+              - Arn
+            - Fn::GetAtt:
+              - PatientSummariesTable
+              - Arn
+            - Fn::GetAtt:
+              - DashboardAggregatesTable
+              - Arn
+            - Fn::GetAtt:
+              - RecentEventsTable
+              - Arn
+            - Fn::GetAtt:
+              - DeviceStatusTable
+              - Arn
+          - Sid: GSIAccess
+            Effect: Allow
+            Action:
+            - dynamodb:Query
+            Resource:
+            - Fn::Sub: ${TelemetryEventsTable.Arn}/index/*
+          - Sid: StreamRead
+            Effect: Allow
+            Action:
+            - dynamodb:GetRecords
+            - dynamodb:GetShardIterator
+            - dynamodb:DescribeStream
+            - dynamodb:ListStreams
+            Resource:
+              Fn::GetAtt:
+              - TelemetryEventsTable
+              - StreamArn
+      - PolicyName: S3RawEventsAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: PutRawEvents
+            Effect: Allow
+            Action:
+            - s3:PutObject
+            - s3:GetObject
+            - s3:HeadObject
+            Resource:
+              Fn::Sub: ${RawEventsBucket.Arn}/events/*
+          - Sid: ListBucket
+            Effect: Allow
+            Action: s3:ListBucket
+            Resource:
+              Fn::GetAtt:
+              - RawEventsBucket
+              - Arn
+      - PolicyName: CloudWatchMetrics
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: PutCustomMetrics
+            Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+      - PolicyName: SQSDLQAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: SendToDLQ
+            Effect: Allow
+            Action:
+            - sqs:SendMessage
+            - sqs:GetQueueAttributes
+            Resource:
+              Fn::GetAtt:
+              - KpiProcessorDLQ
+              - Arn
+      Tags:
+      - Key: Project
+        Value: RhythmCloud
+      - Key: Environment
+        Value:
+          Ref: Environment
+  IngestEventFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-ingest-event-${Environment}
+      Description: 'RhythmCloud: ingest cardiac telemetry events'
+      CodeUri: IngestEventFunction
+      Handler: handlers.ingest_event.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      MemorySize: 512
+      Events:
+        IngestEvent:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /events
+            Method: POST
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: IngestEventFunction
+  IngestEventLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-ingest-event-${Environment}
+      RetentionInDays: 30
+  KpiProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-kpi-processor-${Environment}
+      Description: 'RhythmCloud: recompute KPIs from DynamoDB stream'
+      CodeUri: KpiProcessorFunction
+      Handler: handlers.kpi_processor.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      MemorySize: 512
+      Timeout: 60
+      Events:
+        DynamoDBStream:
+          Type: DynamoDB
+          Properties:
+            Stream:
+              Fn::GetAtt:
+              - TelemetryEventsTable
+              - StreamArn
+            StartingPosition: TRIM_HORIZON
+            BatchSize: 25
+            MaximumBatchingWindowInSeconds: 10
+            BisectBatchOnFunctionError: true
+            MaximumRetryAttempts: 3
+            DestinationConfig:
+              OnFailure:
+                Destination:
+                  Fn::GetAtt:
+                  - KpiProcessorDLQ
+                  - Arn
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: KpiProcessorFunction
+  KpiProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-kpi-processor-${Environment}
+      RetentionInDays: 30
+  GetDashboardKpisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-dashboard-kpis-${Environment}
+      Description: 'RhythmCloud: return top-level dashboard KPI metrics'
+      CodeUri: GetDashboardKpisFunction
+      Handler: handlers.get_dashboard_kpis.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetKpis:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/kpis
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetDashboardKpisFunction
+  GetDashboardKpisLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-dashboard-kpis-${Environment}
+      RetentionInDays: 30
+  GetSyncFrequencyFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-sync-frequency-${Environment}
+      Description: 'RhythmCloud: return 24h sync frequency time series'
+      CodeUri: GetSyncFrequencyFunction
+      Handler: handlers.get_sync_frequency.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetSyncFreq:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/sync-frequency
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetSyncFrequencyFunction
+  GetSyncFrequencyLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-sync-frequency-${Environment}
+      RetentionInDays: 30
+  GetAdherenceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-adherence-${Environment}
+      Description: 'RhythmCloud: return per-patient adherence scores'
+      CodeUri: GetAdherenceFunction
+      Handler: handlers.get_adherence.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetAdherence:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/adherence
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetAdherenceFunction
+  GetAdherenceLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-adherence-${Environment}
+      RetentionInDays: 30
+  GetVitalsTrendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-vitals-trend-${Environment}
+      Description: 'RhythmCloud: return heart rate and BP trend'
+      CodeUri: GetVitalsTrendFunction
+      Handler: handlers.get_vitals_trend.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetVitals:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/vitals-trend
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetVitalsTrendFunction
+  GetVitalsTrendLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-vitals-trend-${Environment}
+      RetentionInDays: 30
+  GetHeatmapFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-heatmap-${Environment}
+      Description: 'RhythmCloud: return cardiac event heatmap matrix'
+      CodeUri: GetHeatmapFunction
+      Handler: handlers.get_heatmap.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetHeatmap:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/heatmap
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetHeatmapFunction
+  GetHeatmapLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-heatmap-${Environment}
+      RetentionInDays: 30
+  GetRecentEventsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-recent-events-${Environment}
+      Description: 'RhythmCloud: return recent device events for dashboard table'
+      CodeUri: GetRecentEventsFunction
+      Handler: handlers.get_recent_events.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetRecentEvents:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /dashboard/recent-events
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetRecentEventsFunction
+  GetRecentEventsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-recent-events-${Environment}
+      RetentionInDays: 30
+  GetPatientSummaryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-patient-summary-${Environment}
+      Description: 'RhythmCloud: return KPI summary for a specific patient'
+      CodeUri: GetPatientSummaryFunction
+      Handler: handlers.get_patient_summary.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetSummary:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /patients/{patientId}/summary
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetPatientSummaryFunction
+  GetPatientSummaryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-patient-summary-${Environment}
+      RetentionInDays: 30
+  GetPatientEventsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: rhythmcloud-get-patient-events-${Environment}
+      Description: 'RhythmCloud: return paginated event history for a patient'
+      CodeUri: GetPatientEventsFunction
+      Handler: handlers.get_patient_events.lambda_handler
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Events:
+        GetEvents:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: RhythmCloudApi
+            Path: /patients/{patientId}/events
+            Method: GET
+      Tags:
+        Project: RhythmCloud
+        Environment:
+          Ref: Environment
+    Metadata:
+      SamResourceId: GetPatientEventsFunction
+  GetPatientEventsLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/lambda/rhythmcloud-get-patient-events-${Environment}
+      RetentionInDays: 30
+  HighAbnormalEventRateAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:
+        Fn::Sub: rhythmcloud-high-abnormal-events-${Environment}
+      AlarmDescription: More than 10 abnormal cardiac events in 5 minutes
+      Namespace: RhythmCloud
+      MetricName: AbnormalEvents
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  LowTransmissionSuccessAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:
+        Fn::Sub: rhythmcloud-low-transmission-success-${Environment}
+      AlarmDescription: Transmission success rate fell below 90%
+      Namespace: RhythmCloud
+      MetricName: TransmissionSuccessRate
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 90
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+  LowAdherenceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:
+        Fn::Sub: rhythmcloud-low-adherence-score-${Environment}
+      AlarmDescription: Average patient adherence score fell below 70%
+      Namespace: RhythmCloud
+      MetricName: AdherenceScore
+      Statistic: Average
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 70
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: notBreaching
+  IngestFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: IngestEventFunction
+    Properties:
+      AlarmName:
+        Fn::Sub: rhythmcloud-ingest-errors-${Environment}
+      AlarmDescription: Ingest Lambda error rate exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions:
+      - Name: FunctionName
+        Value:
+          Ref: IngestEventFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 3
+      Threshold: 5
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+  KpiDlqDepthAlarm:
+    Type: AWS::CloudWatch::Alarm
+    DependsOn: KpiProcessorDLQ
+    Properties:
+      AlarmName:
+        Fn::Sub: rhythmcloud-kpi-dlq-depth-${Environment}
+      AlarmDescription: KPI processor DLQ has unprocessed messages
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+      - Name: QueueName
+        Value:
+          Fn::GetAtt:
+          - KpiProcessorDLQ
+          - QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+Outputs:
+  ApiBaseUrl:
+    Description: Base URL for all RhythmCloud API endpoints
+    Value:
+      Fn::Sub: https://${RhythmCloudApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudApiBaseUrl-${Environment}
+  TelemetryEventsTableName:
+    Value:
+      Ref: TelemetryEventsTable
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudEventsTable-${Environment}
+  PatientSummariesTableName:
+    Value:
+      Ref: PatientSummariesTable
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudSummariesTable-${Environment}
+  DashboardAggregatesTableName:
+    Value:
+      Ref: DashboardAggregatesTable
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudAggregatesTable-${Environment}
+  RecentEventsTableName:
+    Value:
+      Ref: RecentEventsTable
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudRecentEventsTable-${Environment}
+  DeviceStatusTableName:
+    Value:
+      Ref: DeviceStatusTable
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudDeviceStatusTable-${Environment}
+  RawEventsBucketName:
+    Value:
+      Ref: RawEventsBucket
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudRawEventsBucket-${Environment}
+  TelemetryEventsStreamArn:
+    Value:
+      Fn::GetAtt:
+      - TelemetryEventsTable
+      - StreamArn
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudEventsStreamArn-${Environment}
+  KpiProcessorDLQUrl:
+    Value:
+      Ref: KpiProcessorDLQ
+    Export:
+      Name:
+        Fn::Sub: RhythmCloudKpiDLQ-${Environment}
