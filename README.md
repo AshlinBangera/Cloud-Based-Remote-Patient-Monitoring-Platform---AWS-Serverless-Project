@@ -642,32 +642,6 @@ A pure Python scoring engine reads the last 50 events per patient and outputs a 
 
 ---
 
-## Resume Bullets
-
-> Ready to copy-paste into your CV or LinkedIn profile.
-
-- **Designed and deployed a production-grade serverless remote patient monitoring platform on AWS**, processing cardiac IoT telemetry through a Lambda → DynamoDB Streams → KPI aggregation pipeline with zero server management
-
-- **Built a real-time clinical alerting system using Amazon SNS**, triggering structured email notifications to clinicians within seconds of abnormal cardiac events — tachycardia, bradycardia, hypoxia, hypertensive crisis — with full patient vitals in the alert body
-
-- **Implemented end-to-end alert response time tracking**, recording detection-to-acknowledgement deltas per alert, publishing `AlertResponseTimeSeconds` to CloudWatch as a custom metric, and exposing a `POST /alerts/{id}/acknowledge` endpoint consumed by clinical staff
-
-- **Engineered a patient risk scoring engine in pure Python** computing composite 0–100 risk scores from 5 weighted clinical factors (abnormal event frequency, vitals trend, transmission reliability, device health, SpO2 average) across each patient's last 50 telemetry events — no ML framework required
-
-- **Architected a real-time clinical data API** using API Gateway + Lambda serving 12 REST endpoints, with pre-computed DynamoDB aggregates enabling sub-100ms dashboard response times across 7 widget types
-
-- **Built a Hive-partitioned S3 data lake** with Athena SQL queries for historical analysis — transmission success rates, patient adherence trends, cardiac event heatmaps — enabling ad-hoc clinical analytics at $5/TB
-
-- **Implemented a GitHub Actions CI/CD pipeline** — automated lint, 14 unit tests with moto mocks, `sam build`, `sam deploy`, and live smoke test on every push to `main`, with deployment summary posted to the Actions tab
-
-- **Implemented Infrastructure as Code** using AWS SAM with multi-environment deployment, IAM least-privilege policies, CloudWatch custom metrics, and 5 operational alarms
-
-- **Developed a realistic cardiac IoT simulator** generating 200+ telemetry events per run across 5 patient profiles (atrial fibrillation, heart failure, hypertension, arrhythmia, coronary artery disease) with configurable abnormal event injection
-
----
-
-## License
-
 MIT — see [LICENSE](LICENSE)
 
 ---
