@@ -1306,10 +1306,12 @@ async function fetchKPIs() {
 
 // Fetches sync frequency → updates line chart (every 30s)
 async function fetchSyncFrequency() {
-  const data = await apiFetch('/dashboard/sync-frequency');
+  const limit = _rangeToLimit('sync');
+  const data = await apiFetch(`/dashboard/sync-frequency?limit=${limit}`);
   if (!data || !data.labels) return;
   syncFreqChart.data.labels = data.labels;
   syncFreqChart.data.datasets[0].data = data.values;
+  syncFreqChart.options.plugins.title = { display: _selectedHours !== 24, text: `Last ${_selectedHours < 24 ? _selectedHours + 'h' : '24h'}`, color: '#475569', font: { size: 9 } };
   syncFreqChart.update('none');
 }
 
@@ -1317,22 +1319,53 @@ async function fetchSyncFrequency() {
 async function fetchAdherence() {
   const data = await apiFetch('/dashboard/adherence');
   if (!data || !data.patients || !data.patients.length) return;
+
+  const pid    = _selectedPatient;
   const labels = data.patients.map(p => p.patientId);
   const values = data.patients.map(p => p.adherence);
+
   adherenceChart.data.labels = labels;
-  adherenceChart.data.datasets[0].data   = values;
-  adherenceChart.data.datasets[0].backgroundColor = values.map(v => v >= 80 ? 'rgba(59,130,246,0.7)' : 'rgba(59,130,246,0.4)');
-  adherenceChart.data.datasets[0].borderColor      = values.map(v => v >= 80 ? '#3b82f6' : 'rgba(59,130,246,0.5)');
+  adherenceChart.data.datasets[0].data = values;
+  adherenceChart.data.datasets[0].backgroundColor = values.map((v, i) => {
+    const isSelected = pid !== 'ALL' && labels[i] === pid;
+    const base = isSelected ? 'rgba(34,197,94,' : 'rgba(59,130,246,';
+    return base + (v >= 80 ? '0.8)' : '0.4)');
+  });
+  adherenceChart.data.datasets[0].borderColor = values.map((v, i) => {
+    const isSelected = pid !== 'ALL' && labels[i] === pid;
+    return isSelected ? '#22c55e' : (v >= 80 ? '#3b82f6' : 'rgba(59,130,246,0.5)');
+  });
   adherenceChart.update();
 }
 
 // Fetches vitals trend → updates dual-line chart (every 30s)
 async function fetchVitalsTrend() {
-  const data = await apiFetch('/dashboard/vitals-trend');
-  if (!data || !data.heartRate || !data.heartRate.length) return;
-  vitalsChart.data.labels = data.labels || data.heartRate.map((_, i) => `T${i+1}`);
-  vitalsChart.data.datasets[0].data = data.heartRate;
-  vitalsChart.data.datasets[1].data = data.bloodPressure;
+  const limit = _rangeToLimit('vitals');
+  const pid   = _selectedPatient !== 'ALL' ? _selectedPatient : null;
+  const path  = pid
+    ? `/patients/${pid}/events?limit=${limit}`
+    : `/dashboard/vitals-trend?limit=${limit}`;
+
+  const data = await apiFetch(path);
+  if (!data) return;
+
+  let labels, hrValues, bpValues;
+
+  if (pid && data.items) {
+    // Per-patient events — build series from raw events
+    const items = [...(data.items || [])].reverse();
+    labels   = items.map(e => (e.timestamp || '').slice(11, 16));
+    hrValues = items.map(e => parseFloat(e.heartRate   || 0));
+    bpValues = items.map(e => parseFloat(e.systolicBP  || 0));
+  } else if (data.heartRate) {
+    labels   = data.labels || data.heartRate.map((_, i) => `T${i + 1}`);
+    hrValues = data.heartRate;
+    bpValues = data.bloodPressure;
+  } else return;
+
+  vitalsChart.data.labels = labels;
+  vitalsChart.data.datasets[0].data = hrValues;
+  vitalsChart.data.datasets[1].data = bpValues;
   vitalsChart.update('none');
 }
 
@@ -1360,7 +1393,13 @@ async function fetchHeatmap() {
 async function fetchRecentEvents() {
   const data = await apiFetch('/dashboard/recent-events');
   if (!data || !data.events) return;
-  renderEvents(data.events);
+
+  const pid = _selectedPatient;
+  const filtered = pid === 'ALL'
+    ? data.events
+    : data.events.filter(e => e.patientId === pid);
+
+  renderEvents(filtered);
   pipelineAnim();
 }
 
@@ -1537,7 +1576,9 @@ function selectRange(hours, btn) {
 }
 
 function _updateFilterLabel() {
-  const pLabel = _selectedPatient === 'ALL' ? 'all patients' : _selectedPatient;
+  const pLabel = _selectedPatient === 'ALL'
+    ? 'all patients'
+    : `${_selectedPatient} — ${PATIENT_NAMES[_selectedPatient] || ''}`;
   const rLabel = _selectedHours < 24
     ? `last ${_selectedHours}h`
     : _selectedHours === 24 ? 'last 24h' : 'last 7d';
@@ -1549,8 +1590,19 @@ function _refreshFiltered() {
   fetchVitalsTrend();
   fetchAdherence();
   fetchSpo2Trend();
+  fetchRecentEvents();
   if (_selectedPatient !== 'ALL') fetchDeviceHealth(_selectedPatient);
   else fetchAllDeviceHealth();
+}
+
+// Map time range hours → data point limits
+function _rangeToLimit(chartType) {
+  const map = {
+    sync:   { 1: 6,  6: 12, 24: 24,  168: 100 },
+    vitals: { 1: 6,  6: 12, 24: 20,  168: 100 },
+    spo2:   { 1: 6,  6: 12, 24: 20,  168: 100 },
+  };
+  return (map[chartType] || map.vitals)[_selectedHours] || 20;
 }
 
 /* ═══════════════════════ SPO2 CHART ═══════════════════════ */
@@ -1611,7 +1663,8 @@ const spo2Chart = new Chart(spo2Ctx, {
 });
 
 async function fetchSpo2Trend() {
-  const data = await apiFetch('/dashboard/vitals-trend');
+  const limit = _rangeToLimit('spo2');
+  const data = await apiFetch(`/dashboard/vitals-trend?limit=${limit}`);
   if (!data || !data.heartRate || !data.heartRate.length) return;
 
   const labels = data.labels || data.heartRate.map((_, i) => `T${i+1}`);
