@@ -932,6 +932,53 @@
 
 </div>
 
+<!-- ═══════════════════ PATIENT DRILL-DOWN PANEL ══════════════════════ -->
+<div id="drilldownOverlay" onclick="closeDrilldown()" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;"></div>
+
+<div id="drilldownPanel" style="
+  display:none;position:fixed;top:0;right:0;width:420px;height:100vh;
+  background:#0d1a36;border-left:1px solid rgba(82,138,255,0.2);
+  z-index:101;overflow-y:auto;padding:20px;
+  transform:translateX(100%);transition:transform 0.3s ease;
+">
+  <!-- Header -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+    <div>
+      <div id="ddPatientName" style="font-size:16px;font-weight:700;color:var(--text-primary);font-family:'Rajdhani',sans-serif;">—</div>
+      <div id="ddPatientId" style="font-size:10px;color:var(--text-muted);font-family:var(--mono);">—</div>
+    </div>
+    <button onclick="closeDrilldown()" style="background:none;border:1px solid rgba(82,138,255,0.2);color:var(--text-muted);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:11px;">✕ Close</button>
+  </div>
+
+  <!-- Risk score banner -->
+  <div id="ddRiskBanner" style="border-radius:8px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;">
+    <div>
+      <div style="font-size:9px;color:rgba(255,255,255,0.6);font-family:var(--mono);margin-bottom:2px;">RISK SCORE</div>
+      <div id="ddRiskScore" style="font-size:28px;font-weight:700;font-family:'Rajdhani',sans-serif;">—</div>
+    </div>
+    <div style="text-align:right;">
+      <div id="ddRiskLevel" style="font-size:12px;font-weight:700;font-family:var(--mono);">—</div>
+      <div id="ddRiskFactor" style="font-size:9px;opacity:0.7;margin-top:2px;max-width:150px;text-align:right;">—</div>
+    </div>
+  </div>
+
+  <!-- Latest vitals -->
+  <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);letter-spacing:0.5px;margin-bottom:8px;">LATEST VITALS</div>
+  <div id="ddVitals" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px;"></div>
+
+  <!-- Recommendations -->
+  <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);letter-spacing:0.5px;margin-bottom:8px;">CLINICAL RECOMMENDATIONS</div>
+  <div id="ddRecommendations" style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px;"></div>
+
+  <!-- Alert history -->
+  <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);letter-spacing:0.5px;margin-bottom:8px;">ALERT HISTORY</div>
+  <div id="ddAlerts" style="display:flex;flex-direction:column;gap:5px;margin-bottom:14px;"></div>
+
+  <!-- Recent events -->
+  <div style="font-size:9px;color:var(--text-muted);font-family:var(--mono);letter-spacing:0.5px;margin-bottom:8px;">RECENT EVENTS</div>
+  <div id="ddEvents" style="display:flex;flex-direction:column;gap:4px;"></div>
+</div>
+
 <script>
 /* ═══════════════════════════ CONFIG ═══════════════════════════ */
 Chart.defaults.color = '#475569';
@@ -1193,7 +1240,7 @@ function renderEvents(events) {
     return `
       <tr>
         <td style="color:var(--text-muted);white-space:nowrap;">${e.time || ''}</td>
-        <td style="color:var(--blue-bright);">${e.patientId || ''}</td>
+        <td style="color:var(--blue-bright);cursor:pointer;text-decoration:underline dotted;" onclick="openDrilldown('${e.patientId}')">${e.patientId || ''}</td>
         <td style="color:var(--text-secondary);font-size:9px;">${e.deviceId || ''}</td>
         <td><span class="event-type-tag">${icon} ${e.eventType || ''}</span></td>
         <td><span class="status-pill ${status}">${cap(status)}</span></td>
@@ -1351,7 +1398,125 @@ setInterval(fetchAllDeviceHealth,30_000);
 setInterval(pipelineAnim,         6_000);
 updateTimestamp();
 
-/* ═══════════════════════ PATIENT SELECTOR & TIME RANGE ═══════════════════════ */
+/* ═══════════════════════ PATIENT DRILL-DOWN ═══════════════════════ */
+const RISK_COLORS = {
+  LOW:      { bg: 'rgba(34,197,94,0.15)',  text: '#22c55e', bar: '#22c55e'  },
+  MEDIUM:   { bg: 'rgba(245,158,11,0.15)', text: '#f59e0b', bar: '#f59e0b'  },
+  HIGH:     { bg: 'rgba(249,115,22,0.15)', text: '#f97316', bar: '#f97316'  },
+  CRITICAL: { bg: 'rgba(239,68,68,0.15)',  text: '#ef4444', bar: '#ef4444'  },
+  UNKNOWN:  { bg: 'rgba(148,163,184,0.1)', text: '#94a3b8', bar: '#94a3b8'  },
+};
+
+async function openDrilldown(pid) {
+  if (!pid || pid.startsWith('CI-')) return;
+
+  const overlay = document.getElementById('drilldownOverlay');
+  const panel   = document.getElementById('drilldownPanel');
+
+  overlay.style.display = 'block';
+  panel.style.display   = 'block';
+  setTimeout(() => panel.style.transform = 'translateX(0)', 10);
+
+  document.getElementById('ddPatientName').textContent = PATIENT_NAMES[pid] || pid;
+  document.getElementById('ddPatientId').textContent   = pid + ' · ' + (DEVICE_MAP[pid] || '');
+  document.getElementById('ddVitals').innerHTML        = '<div style="color:var(--text-muted);font-size:10px;font-family:var(--mono);grid-column:span 3">Loading...</div>';
+  document.getElementById('ddRecommendations').innerHTML = '';
+  document.getElementById('ddAlerts').innerHTML        = '';
+  document.getElementById('ddEvents').innerHTML        = '';
+
+  const [riskData, alertData, eventsData] = await Promise.all([
+    apiFetch(`/patients/${pid}/risk`),
+    apiFetch(`/patients/${pid}/alerts?limit=5`),
+    apiFetch(`/patients/${pid}/events?limit=8`),
+  ]);
+
+  if (riskData) {
+    const level  = riskData.riskLevel || 'UNKNOWN';
+    const color  = RISK_COLORS[level] || RISK_COLORS.UNKNOWN;
+    const score  = Math.round(riskData.riskScore || 0);
+    const factor = riskData.factors && riskData.factors[0]
+      ? riskData.factors[0].factor : 'No factors';
+
+    const banner = document.getElementById('ddRiskBanner');
+    banner.style.background = color.bg;
+    banner.style.border     = `1px solid ${color.text}40`;
+    document.getElementById('ddRiskScore').style.color = color.text;
+    document.getElementById('ddRiskScore').textContent = score;
+    document.getElementById('ddRiskLevel').style.color = color.text;
+    document.getElementById('ddRiskLevel').textContent = level;
+    document.getElementById('ddRiskFactor').textContent = factor;
+
+    const v = riskData.latestVitals || {};
+    const vitals = [
+      { label: 'HR',   value: v.heartRate    ? v.heartRate + ' bpm'    : '—', warn: v.heartRate < 50 || v.heartRate > 130 },
+      { label: 'SpO2', value: v.spo2         ? v.spo2 + '%'            : '—', warn: v.spo2 < 90 },
+      { label: 'SBP',  value: v.systolicBP   ? v.systolicBP + ' mmHg'  : '—', warn: v.systolicBP > 180 },
+      { label: 'DBP',  value: v.diastolicBP  ? v.diastolicBP + ' mmHg' : '—', warn: false },
+      { label: 'BAT',  value: v.batteryLevel !== undefined ? v.batteryLevel + '%' : '—', warn: v.batteryLevel < 20 },
+      { label: 'LAST', value: v.lastSeen     ? v.lastSeen.slice(11,16) + ' UTC' : '—', warn: false },
+    ];
+
+    document.getElementById('ddVitals').innerHTML = vitals.map(vt => `
+      <div style="background:rgba(255,255,255,0.04);border-radius:6px;padding:8px;text-align:center;border:1px solid ${vt.warn ? 'rgba(239,68,68,0.3)' : 'rgba(82,138,255,0.1)'};">
+        <div style="font-size:8px;color:var(--text-muted);font-family:var(--mono);margin-bottom:3px;">${vt.label}</div>
+        <div style="font-size:12px;font-weight:700;font-family:'Rajdhani',sans-serif;color:${vt.warn ? '#ef4444' : 'var(--text-primary)'};">${vt.value}</div>
+      </div>`).join('');
+
+    const recs = riskData.recommendations || [];
+    document.getElementById('ddRecommendations').innerHTML = recs.length
+      ? recs.map(r => `
+        <div style="display:flex;gap:8px;align-items:flex-start;padding:7px 10px;background:rgba(255,255,255,0.03);border-radius:6px;border-left:2px solid ${color.text};">
+          <span style="color:${color.text};font-size:10px;flex-shrink:0;">→</span>
+          <span style="font-size:10px;color:var(--text-secondary);line-height:1.4;">${r}</span>
+        </div>`).join('')
+      : '<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);">No recommendations</div>';
+  }
+
+  if (alertData && alertData.alerts) {
+    const alerts = alertData.alerts.slice(0, 5);
+    document.getElementById('ddAlerts').innerHTML = alerts.length
+      ? alerts.map(a => {
+          const isActive = a.status === 'ACTIVE';
+          const elapsed  = a.detectedAt ? _elapsed(a.detectedAt) : '?';
+          const rtLabel  = a.responseTimeSec ? _fmtTime(a.responseTimeSec) : null;
+          return `
+          <div style="padding:7px 10px;border-radius:6px;background:${isActive ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.06)'};border:1px solid ${isActive ? 'rgba(239,68,68,0.2)' : 'rgba(34,197,94,0.15)'};">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px;">
+              <span style="font-size:10px;font-weight:600;color:${isActive ? '#ef4444' : '#22c55e'};font-family:var(--mono);">${(a.alertType||'').replace(/_/g,' ')}</span>
+              <span style="font-size:8px;color:var(--text-muted);font-family:var(--mono);">${isActive ? elapsed + ' ago' : (rtLabel ? 'ACK in ' + rtLabel : 'Acknowledged')}</span>
+            </div>
+            <div style="font-size:9px;color:var(--text-muted);">${a.message || ''}</div>
+          </div>`;
+        }).join('')
+      : '<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);">No alert history</div>';
+  }
+
+  if (eventsData && eventsData.items) {
+    const events = eventsData.items.slice(0, 8);
+    document.getElementById('ddEvents').innerHTML = events.length
+      ? events.map(e => {
+          const isAbnormal = e.heartRate > 130 || e.heartRate < 50 || e.spo2 < 90;
+          const time = (e.timestamp || '').slice(11, 16);
+          return `
+          <div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:4px;background:rgba(255,255,255,0.03);font-size:9px;font-family:var(--mono);">
+            <span style="color:var(--text-muted);min-width:36px;">${time}</span>
+            <span style="color:${isAbnormal ? '#ef4444' : '#22c55e'};">●</span>
+            <span style="color:var(--text-secondary);">HR ${e.heartRate} · SpO2 ${e.spo2}% · SBP ${e.systolicBP}</span>
+            <span style="margin-left:auto;color:${e.transmissionStatus === 'success' ? '#22c55e' : '#ef4444'};">${e.transmissionStatus || ''}</span>
+          </div>`;
+        }).join('')
+      : '<div style="font-size:10px;color:var(--text-muted);font-family:var(--mono);">No recent events</div>';
+  }
+}
+
+function closeDrilldown() {
+  const panel = document.getElementById('drilldownPanel');
+  panel.style.transform = 'translateX(100%)';
+  setTimeout(() => {
+    panel.style.display = 'none';
+    document.getElementById('drilldownOverlay').style.display = 'none';
+  }, 300);
+}
 let _selectedPatient = 'ALL';
 let _selectedHours   = 24;
 
@@ -1543,13 +1708,6 @@ async function fetchDeviceHealth(pid) {
   await fetchAllDeviceHealth();
 }
 const PATIENTS = ['P001','P002','P003','P004','P005'];
-const RISK_COLORS = {
-  LOW:      { bg: 'rgba(34,197,94,0.15)',  text: '#22c55e', bar: '#22c55e'  },
-  MEDIUM:   { bg: 'rgba(245,158,11,0.15)', text: '#f59e0b', bar: '#f59e0b'  },
-  HIGH:     { bg: 'rgba(249,115,22,0.15)', text: '#f97316', bar: '#f97316'  },
-  CRITICAL: { bg: 'rgba(239,68,68,0.15)',  text: '#ef4444', bar: '#ef4444'  },
-  UNKNOWN:  { bg: 'rgba(148,163,184,0.1)', text: '#94a3b8', bar: '#94a3b8'  },
-};
 
 const PATIENT_NAMES = {
   P001: 'Alice Brennan',
@@ -1581,7 +1739,7 @@ async function fetchRiskScores() {
     const name = PATIENT_NAMES[pid] || pid;
 
     rows.push(`
-      <div class="risk-row" title="${factor}">
+      <div class="risk-row" title="${factor}" onclick="openDrilldown('${pid}')" style="cursor:pointer;">
         <span style="font-size:10px;font-family:var(--mono);color:var(--text-secondary);min-width:28px;">${pid}</span>
         <span style="font-size:11px;color:var(--text-primary);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${name}</span>
         <div class="risk-bar-wrap">
