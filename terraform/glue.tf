@@ -199,7 +199,6 @@ from pyspark.context import SparkContext
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.dynamicframe import DynamicFrame
-from pyspark.sql.functions import col, year, month, dayofmonth, hour
 
 args = getResolvedOptions(sys.argv, [
     'JOB_NAME', 'SOURCE_BUCKET', 'TARGET_BUCKET',
@@ -231,35 +230,31 @@ if dyf.count() == 0:
     job.commit()
     raise SystemExit(0)
 
-df = dyf.toDF()
+numeric_fields = [
+    "heartRate", "spo2", "systolicBP",
+    "diastolicBP", "batteryLevel", "signalStrength"
+]
 
-df_typed = (df
-    .withColumn("heartRate",      col("heartRate").cast("double"))
-    .withColumn("spo2",           col("spo2").cast("double"))
-    .withColumn("systolicBP",     col("systolicBP").cast("double"))
-    .withColumn("diastolicBP",    col("diastolicBP").cast("double"))
-    .withColumn("batteryLevel",   col("batteryLevel").cast("double"))
-    .withColumn("signalStrength", col("signalStrength").cast("double"))
+resolved = ResolveChoice.apply(
+    dyf,
+    specs = [(f, "cast:double") for f in numeric_fields]
 )
 
-dyf_out = DynamicFrame.fromDF(df_typed, glueCtx, "typed")
-
 sink = glueCtx.getSink(
-    path                    = target_path,
-    connection_type         = "s3",
-    updateBehavior          = "UPDATE_IN_DATABASE",
-    partitionKeys           = ["year", "month", "day", "hour"],
-    compression             = "snappy",
-    enableUpdateCatalog     = True,
-    transformation_ctx      = "write_parquet"
+    path                = target_path,
+    connection_type     = "s3",
+    updateBehavior      = "UPDATE_IN_DATABASE",
+    compression         = "snappy",
+    enableUpdateCatalog = True,
+    transformation_ctx  = "write_parquet"
 )
 
 sink.setCatalogInfo(
-    catalogDatabase = args['GLUE_DATABASE'],
+    catalogDatabase  = args['GLUE_DATABASE'],
     catalogTableName = "telemetry_events_parquet"
 )
 sink.setFormat("glueparquet")
-sink.writeFrame(dyf_out)
+sink.writeFrame(resolved)
 job.commit()
   PYTHON
 

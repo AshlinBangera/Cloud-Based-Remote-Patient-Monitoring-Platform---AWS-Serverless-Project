@@ -38,6 +38,18 @@ resource "aws_lakeformation_permissions" "glue_raw_events_location" {
   depends_on = [aws_lakeformation_data_lake_settings.admin]
 }
 
+# ── Data location access for Parquet output bucket ───────────────────────────
+resource "aws_lakeformation_permissions" "glue_parquet_location" {
+  principal   = aws_iam_role.glue.arn
+  permissions = ["DATA_LOCATION_ACCESS"]
+
+  data_location {
+    arn = aws_s3_bucket.parquet.arn
+  }
+
+  depends_on = [aws_lakeformation_data_lake_settings.admin]
+}
+
 # ── Database-level permissions for Glue role ─────────────────────────────────
 resource "aws_lakeformation_permissions" "glue_database" {
   principal   = aws_iam_role.glue.arn
