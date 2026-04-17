@@ -2,9 +2,10 @@
 
 > **Where real-time rhythm meets life-changing care.**
 
-A production-grade, fully serverless AWS platform that ingests cardiac IoT telemetry, detects abnormal events, computes real-time clinical KPIs, triggers instant clinical alerts, tracks alert response times, scores patient risk, and powers a live operational dashboard — built entirely with AWS Lambda, DynamoDB, S3, API Gateway, SNS, and CloudWatch.
+A production-grade, fully serverless AWS platform that ingests cardiac IoT telemetry, detects abnormal events, computes real-time clinical KPIs, triggers instant clinical alerts, tracks alert response times, scores patient risk, powers a live operational dashboard, and delivers Athena-powered analytics from a governed data lake.
 
 [![AWS SAM](https://img.shields.io/badge/AWS-SAM-orange?logo=amazonaws)](https://aws.amazon.com/serverless/sam/)
+[![Terraform](https://img.shields.io/badge/IaC-Terraform-7B42BC?logo=terraform)](https://terraform.io)
 [![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)](https://python.org)
 [![DynamoDB](https://img.shields.io/badge/Amazon-DynamoDB-blue?logo=amazondynamodb)](https://aws.amazon.com/dynamodb/)
 [![CI/CD](https://img.shields.io/badge/CI%2FCD-GitHub_Actions-black?logo=githubactions)](https://github.com/features/actions)
@@ -16,7 +17,7 @@ A production-grade, fully serverless AWS platform that ingests cardiac IoT telem
 
 ![RhythmCloud Dashboard](docs/dashboard-preview.png)
 
-The dashboard displays real-time data from AWS — transmission success rates, cardiac event heatmaps, patient adherence scores, and a live device event feed — all powered by serverless APIs.
+The dashboard displays real-time data from AWS — transmission success rates, cardiac event heatmaps, patient adherence, risk scores, active clinical alerts, SpO2 trending, device health, and a live event feed — all powered by serverless APIs with patient filtering and time range selection.
 
 ---
 
@@ -33,9 +34,10 @@ The dashboard displays real-time data from AWS — transmission success rates, c
 - [Real-Time Alerting](#real-time-alerting)
 - [Alert Response Time Tracking](#alert-response-time-tracking)
 - [Patient Risk Scoring](#patient-risk-scoring)
+- [Terraform Data Layer](#terraform-data-layer)
+- [Athena Analytics Page](#athena-analytics-page)
+- [Dashboard Features](#dashboard-features)
 - [Data Simulator](#data-simulator)
-- [Athena SQL Queries](#athena-sql-queries)
-- [Dashboard Integration](#dashboard-integration)
 - [CloudWatch Metrics & Alarms](#cloudwatch-metrics--alarms)
 - [Resume Bullets](#resume-bullets)
 
@@ -51,10 +53,13 @@ RhythmCloud simulates a healthcare platform where wearable cardiac devices send 
 - **Tracks** alert response times from detection to clinician acknowledgement, publishing `AlertResponseTimeSeconds` to CloudWatch
 - **Scores** each patient's composite risk (0–100) across 5 weighted clinical factors using pure Python logic
 - **Computes** rolling KPIs per patient — transmission success rate, sync reliability, adherence score, abnormal event frequency
-- **Archives** every raw event to S3 with Hive-style partitioning for Athena SQL analysis
-- **Exposes** 12 REST API endpoints that power a live operational dashboard
-- **Deploys** automatically via GitHub Actions CI/CD on every push to `main`
-- **Publishes** custom CloudWatch metrics and alarms for operational monitoring
+- **Archives** every raw event to S3 with Hive-style partitioning
+- **Transforms** raw JSON → Parquet via AWS Glue ETL job (10x cheaper Athena queries, Snappy compressed)
+- **Governs** the data lake with AWS Lake Formation — registered locations, column-level access control
+- **Analyses** historical data via 5 Athena-powered query types visualised in a dedicated analytics page
+- **Exposes** 13 REST API endpoints powering a live operational dashboard
+- **Provisions** compute with SAM and data infrastructure with Terraform — dual IaC strategy
+- **Deploys** automatically via GitHub Actions CI/CD on every push to `main`, with manual staging promotion
 
 ### Business Context
 
@@ -65,93 +70,74 @@ Remote patient monitoring is a fast-growing segment of digital health. This proj
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        CLIENT LAYER                                  │
-│                                                                      │
-│   IoT Cardiac Simulator          HTML Dashboard (Chart.js)          │
-│   (scripts/simulate_data.py)     (frontend/rpm-dashboard.html)      │
-└──────────────┬──────────────────────────────┬───────────────────────┘
-               │ POST /events                 │ GET /dashboard/*
-               ▼                              ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│                        API LAYER                                     │
-│                                                                      │
-│              Amazon API Gateway (REST API)                          │
-│         9 routes · CORS enabled · CloudWatch access logs            │
-└──────────┬───────────────────────────────────┬──────────────────────┘
-           │                                   │
-           ▼                                   ▼
-┌──────────────────────┐          ┌────────────────────────────────────┐
-│   Lambda: Ingest     │          │   Lambda: Read APIs (×8)           │
-│                      │          │                                    │
-│ 1. Validate payload  │          │  get_dashboard_kpis                │
-│ 2. Write DynamoDB    │          │  get_sync_frequency                │
-│ 3. Archive → S3      │          │  get_adherence                     │
-│ 4. Write RecentEvents│          │  get_vitals_trend                  │
-│ 5. Update DeviceStatus          │  get_heatmap                       │
-│ 6. Publish CW metric │          │  get_recent_events                 │
-└──────────┬───────────┘          │  get_patient_summary               │
-           │                      │  get_patient_events                │
-           ▼                      └────────────┬───────────────────────┘
-┌──────────────────────┐                       │
-│  DynamoDB            │◄──────────────────────┘
-│  TelemetryEvents     │  reads PatientSummaries
-│  (Streams enabled)   │  + DashboardAggregates
+┌──────────────────────────────────────────────────────────────────────┐
+│                          CLIENT LAYER                                 │
+│                                                                       │
+│   IoT Cardiac Simulator          Dashboard + Analytics Page          │
+│   (scripts/simulate_data.py)     (frontend/rpm-dashboard.html)       │
+│                                  (frontend/analytics.html)           │
+└──────────────┬───────────────────────────────┬───────────────────────┘
+               │ POST /events                  │ GET /dashboard/* /analytics
+               ▼                               ▼
+┌──────────────────────────────────────────────────────────────────────┐
+│                   Amazon API Gateway (REST API) — 13 routes           │
+└──────────┬────────────────────────────────────┬──────────────────────┘
+           │                                    │
+           ▼                                    ▼
+┌──────────────────────┐           ┌────────────────────────────────────┐
+│  Lambda: Ingest      │           │  Lambda: Read APIs (×13)           │
+│  1. Validate payload │           │  get_dashboard_kpis                │
+│  2. Write DynamoDB   │           │  get_sync_frequency                │
+│  3. Archive → S3     │           │  get_adherence / get_heatmap       │
+│  4. Detect abnormal  │           │  get_vitals_trend                  │
+│  5. Publish SNS alert│           │  get_recent_events                 │
+│  6. Write AlertsTable│           │  get_analytics (Athena)            │
+│  7. Publish CW metric│           │  get_patient_risk/alerts/summary   │
+└──────────┬───────────┘           │  get_patient_events                │
+           │                       │  acknowledge_alert                 │
+           ▼                       └────────────┬───────────────────────┘
+┌──────────────────────┐                        │
+│  DynamoDB (6 tables) │◄───────────────────────┘
+│  TelemetryEvents     │
+│  PatientSummaries    │
+│  DashboardAggregates │
+│  RecentEvents        │
+│  DeviceStatus        │
+│  Alerts              │
 └──────────┬───────────┘
-           │ DynamoDB Streams (NEW_IMAGE)
+           │ DynamoDB Streams
            ▼
 ┌──────────────────────┐     ┌──────────────────────┐
-│  Lambda: KPI Engine  │────►│  DynamoDB             │
-│                      │     │  PatientSummaries     │
-│ Per patient:         │     │  DashboardAggregates  │
-│ · TX success rate    │     │  RecentEvents         │
-│ · Sync reliability   │     │  DeviceStatus         │
-│ · Adherence score    │     └──────────────────────┘
-│ · Abnormal freq      │
-│ · Vitals trend       │     ┌──────────────────────┐
-│ · Heatmap matrix     │────►│  CloudWatch           │
-│                      │     │  Custom Metrics       │
-└──────────┬───────────┘     │  + 5 Alarms           │
+│  Lambda: KPI Engine  │────►│  CloudWatch           │
+│  · TX success rate   │     │  Custom Metrics       │
+│  · Sync reliability  │     │  + 5 Alarms           │
+│  · Adherence score   │     └──────────────────────┘
+│  · Abnormal freq     │
+│  · Vitals trend      │     ┌──────────────────────┐
+│  · Heatmap matrix    │────►│  Amazon SNS           │
+└──────────┬───────────┘     │  Clinical alert email │
            │                 └──────────────────────┘
-           │ S3 archive (partitioned)
+           │ S3 archive (Hive partitioned JSON)
            ▼
-┌──────────────────────┐
-│  Amazon S3           │
-│  Raw Event Archive   │
-│                      │
-│  year=YYYY/          │
-│  month=MM/           │
-│  day=DD/             │
-│  hour=HH/            │
-│  <patientId>/        │
-│  <eventId>.json      │
-└──────────┬───────────┘
+┌────────────────────────┐   ┌──────────────────────────────────────┐
+│  Amazon S3             │   │  Terraform — Data Layer               │
+│  Raw Events (JSON)     │──►│  Glue Crawler → schema discovery     │
+│  year/month/day/hour/  │   │  Glue ETL job → Parquet (Snappy)     │
+│  patientId/eventId.json│   │  Lake Formation permissions           │
+│                        │   └──────────────────┬───────────────────┘
+│  S3 Parquet Bucket     │◄─────────────────────┘
+└────────────────────────┘
            │
            ▼
-┌──────────────────────┐
-│  Amazon Athena       │
-│  SQL Analysis        │
-│                      │
-│  · TX success rate   │
-│  · Abnormal events   │
-│  · Adherence trends  │
-│  · Sync reliability  │
-│  · Heatmap agg.      │
-└──────────────────────┘
+┌──────────────────────────────────────┐
+│  Amazon Athena                        │
+│  Workgroup: rhythmcloud-dev           │
+│  Database: rhythmcloud_dev            │
+│  5 saved named queries                │
+│  GET /analytics Lambda endpoint       │
+│  frontend/analytics.html              │
+└──────────────────────────────────────┘
 ```
-
-### Data Flow Summary
-
-| Step | Description |
-|------|-------------|
-| **1. Ingest** | IoT simulator or real device POSTs telemetry to API Gateway |
-| **2. Validate** | Lambda validates all 13 fields — types, ranges, enums, ISO 8601 timestamp |
-| **3. Store** | Event written to DynamoDB `TelemetryEvents` with TTL |
-| **4. Archive** | Raw JSON archived to S3 with Hive-style partitioning for Athena |
-| **5. Stream** | DynamoDB Streams triggers KPI processor Lambda automatically |
-| **6. Aggregate** | KPI engine recomputes all patient summaries and dashboard aggregates |
-| **7. Metrics** | Custom CloudWatch metrics published for operational visibility |
-| **8. Serve** | Dashboard polls 9 API endpoints; data refreshes every 5–60 seconds |
 
 ---
 
@@ -159,18 +145,21 @@ Remote patient monitoring is a fast-growing segment of digital health. This proj
 
 | Service | Purpose |
 |---------|---------|
-| **AWS Lambda** | 13 functions — ingest, KPI processing, alerting, risk scoring, 9 dashboard read APIs |
-| **Amazon API Gateway** | REST API with CORS, throttling, access logging — 12 routes |
+| **AWS Lambda** | 14 functions — ingest, KPI processor, alerting, risk scoring, Athena analytics, 9 dashboard read APIs |
+| **Amazon API Gateway** | REST API with CORS, throttling — 13 routes |
 | **Amazon DynamoDB** | 6 tables — events, summaries, aggregates, recent events, device status, alerts |
-| **Amazon S3** | Raw event archival with Hive-style partitioning |
+| **Amazon S3** | Raw event archival (JSON, Hive partitioned) + Parquet data lake output |
 | **Amazon SNS** | Real-time clinical alert email notifications |
 | **Amazon CloudWatch** | Custom metrics namespace `RhythmCloud`, 5 alarms, response time tracking |
-| **Amazon Athena** | SQL analysis over S3 archived events |
+| **AWS Glue** | Data Catalog, daily crawler (auto-discovers schema + partitions), ETL job (JSON → Parquet) |
+| **Amazon Athena** | SQL analytics over S3 data lake — workgroup with 1GB cost controls, 5 saved named queries |
+| **AWS Lake Formation** | Data lake governance — registered S3 locations, column-level permissions |
 | **AWS SQS** | Dead letter queue for KPI processor stream failures |
-| **AWS IAM** | Least-privilege role scoped to exact resources |
-| **AWS SAM** | Infrastructure as Code — full stack in `template.yaml` |
+| **AWS IAM** | Least-privilege roles scoped to exact resources |
+| **AWS SAM** | IaC for compute layer — Lambda, API Gateway, DynamoDB, SNS, SQS, CloudWatch alarms |
+| **Terraform** | IaC for data layer — Glue, Athena, Lake Formation, S3 Parquet bucket (20 resources) |
 | **AWS X-Ray** | Distributed tracing on all Lambda functions |
-| **GitHub Actions** | CI/CD pipeline — auto-deploys on push to `main` |
+| **GitHub Actions** | CI/CD pipeline — lint, test, deploy to dev, manual staging promotion |
 
 ---
 
@@ -178,22 +167,22 @@ Remote patient monitoring is a fast-growing segment of digital health. This proj
 
 ```
 rhythmcloud/
-├── .github/
-│   └── workflows/
-│       └── deploy.yml              # GitHub Actions CI/CD pipeline
-├── template.yaml                   # AWS SAM IaC — all AWS resources defined here
-├── samconfig.toml                  # SAM deploy config for dev/staging/prod
-├── requirements.txt                # Python dependencies
-├── .gitignore
+├── .github/workflows/
+│   └── deploy.yml              # CI/CD — lint & test → dev → staging (manual)
+├── template.yaml               # SAM IaC — Lambda, API Gateway, DynamoDB, SNS, SQS
+├── samconfig.toml              # SAM config for dev / staging / prod
+├── requirements.txt
 │
 ├── frontend/
-│   └── rpm-dashboard.html          # Live dashboard — connects to real API endpoints
+│   ├── rpm-dashboard.html      # Live operational dashboard (13 API endpoints)
+│   └── analytics.html          # Athena-powered analytics page (5 query types)
 │
 ├── src/
 │   ├── handlers/
 │   │   ├── ingest_event.py             # POST /events
 │   │   ├── kpi_processor.py            # DynamoDB Streams trigger
 │   │   ├── acknowledge_alert.py        # POST /alerts/{alertId}/acknowledge
+│   │   ├── get_analytics.py            # GET /analytics (Athena queries)
 │   │   ├── get_patient_risk.py         # GET /patients/{patientId}/risk
 │   │   ├── get_patient_alerts.py       # GET /patients/{patientId}/alerts
 │   │   ├── get_dashboard_kpis.py       # GET /dashboard/kpis
@@ -219,15 +208,25 @@ rhythmcloud/
 │       ├── response.py                 # Standardised API response builders
 │       └── time_buckets.py             # Timestamp → heatmap bucket mapping
 │
+├── terraform/                  # Terraform — data infrastructure layer
+│   ├── main.tf                 # AWS provider, backend config
+│   ├── variables.tf            # environment, region, IAM ARN inputs
+│   ├── locals.tf               # common name prefix + tags
+│   ├── glue.tf                 # Glue DB, crawler, ETL job, IAM role, Parquet S3 bucket
+│   ├── athena.tf               # Workgroup (1GB limit) + 5 named queries
+│   ├── lake_formation.tf       # Data lake registration + column-level permissions
+│   ├── outputs.tf              # Glue DB name, workgroup, Parquet bucket
+│   └── terraform.tfvars        # Dev environment values
+│
 ├── tests/
-│   ├── conftest.py                 # pytest configuration
-│   └── test_ingestion.py           # Unit tests with moto mocks (14 tests)
+│   ├── conftest.py
+│   └── test_ingestion.py       # 14 unit tests (moto mocks — no real AWS)
 │
 ├── scripts/
-│   └── simulate_data.py            # Cardiac IoT telemetry simulator
+│   └── simulate_data.py        # Cardiac IoT telemetry simulator (5 patients)
 │
-├── sql/
-│   ├── create_table.sql                # Athena external table DDL
+├── sql/                        # Standalone Athena SQL files
+│   ├── create_table.sql
 │   ├── transmission_success_rate.sql
 │   ├── abnormal_events.sql
 │   ├── adherence_trend.sql
@@ -235,47 +234,53 @@ rhythmcloud/
 │   └── heatmap_aggregation.sql
 │
 └── events/
-    ├── sample_event.json               # Normal vitals event for sam local invoke
-    └── sample_abnormal_event.json      # Abnormal event for testing alarms
+    ├── sample_event.json
+    └── sample_abnormal_event.json
 ```
 
 ---
 
 ## API Endpoints
 
-Base URL: `https://<api-id>.execute-api.<region>.amazonaws.com/dev`
+Base URL: `https://<api-id>.execute-api.eu-north-1.amazonaws.com/dev`
 
 ### Ingest
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/events` | Ingest a telemetry event — triggers alert if abnormal |
+| `POST` | `/events` | Ingest telemetry event — triggers SNS alert if abnormal |
 
 ### Alerts
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/alerts/{alertId}/acknowledge` | Clinician acknowledges an alert, records response time |
-| `GET`  | `/patients/{patientId}/alerts` | Alert history with response time stats |
+| `POST` | `/alerts/{alertId}/acknowledge` | Clinician acknowledges alert, records response time |
+| `GET`  | `/patients/{patientId}/alerts`  | Alert history with avg/fastest/slowest response times |
+
+### Analytics (Athena-powered)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET`  | `/analytics?query=population\|transmission\|adherence\|abnormal\|sync&days=7\|14\|30` | Runs Athena SQL against the Glue data lake, returns chart-ready results |
 
 ### Dashboard
 
 | Method | Path | Widget | Refresh |
 |--------|------|--------|---------|
-| `GET` | `/dashboard/kpis` | Gauge + sync card + abnormal counter | 10s |
-| `GET` | `/dashboard/sync-frequency` | Device Sync Frequency chart | 30s |
-| `GET` | `/dashboard/adherence` | Patient Adherence bar chart | 60s |
-| `GET` | `/dashboard/vitals-trend` | Patient Vitals Trending chart | 30s |
-| `GET` | `/dashboard/heatmap` | Cardiac Event Heatmap | 60s |
-| `GET` | `/dashboard/recent-events` | Recent Device Events table | 5s |
+| `GET` | `/dashboard/kpis`          | TX gauge + sync card + abnormal counter | 10s |
+| `GET` | `/dashboard/sync-frequency` | Device Sync Frequency line chart | 30s |
+| `GET` | `/dashboard/adherence`      | Patient Adherence bar chart | 60s |
+| `GET` | `/dashboard/vitals-trend`   | Patient Vitals Trending chart | 30s |
+| `GET` | `/dashboard/heatmap`        | Cardiac Event Heatmap | 60s |
+| `GET` | `/dashboard/recent-events`  | Recent Device Events table | 5s |
 
 ### Patient
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/patients/{patientId}/risk` | Composite risk score (0–100) with recommendations |
+| `GET` | `/patients/{patientId}/risk`    | Composite risk score (0–100) with clinical recommendations |
 | `GET` | `/patients/{patientId}/summary` | Full KPI summary for one patient |
-| `GET` | `/patients/{patientId}/events` | Paginated event history (`?limit=50&nextToken=`) |
+| `GET` | `/patients/{patientId}/events`  | Paginated event history (`?limit=50`) |
 
 ---
 
@@ -285,15 +290,14 @@ Base URL: `https://<api-id>.execute-api.<region>.amazonaws.com/dev`
 
 | Table | PK | SK | Purpose |
 |-------|----|----|---------|
-| `TelemetryEvents` | `patientId` | `eventId` | All raw telemetry events (TTL 90d) |
+| `TelemetryEvents` | `patientId` | `eventId` | All raw telemetry events (TTL 90d), Streams enabled |
 | `PatientSummaries` | `patientId` | — | Rolling KPIs per patient |
 | `DashboardAggregates` | `metricType` | `periodKey` | Pre-computed chart data (TTL 48h) |
 | `RecentEvents` | `RECENT` | `timestamp#eventId` | Ring-buffer for events table (TTL 24h) |
 | `DeviceStatus` | `deviceId` | — | Latest device snapshot |
+| `Alerts` | `alertId` | — | Clinical alerts with response time tracking; GSI on `patientId` |
 
 ### Abnormal Event Detection
-
-An event is classified as abnormal if any of these conditions are true:
 
 | Field | Condition |
 |-------|-----------|
@@ -311,54 +315,53 @@ An event is classified as abnormal if any of these conditions are true:
 ### Prerequisites
 
 ```bash
-# Install AWS CLI v2
 brew install awscli
-
-# Install AWS SAM CLI
 brew tap aws/tap && brew install aws-sam-cli
-
-# Install Python 3.11
+brew tap hashicorp/tap && brew install hashicorp/tap/terraform
 brew install python@3.11
-
-# Verify all tools
-aws --version       # aws-cli/2.x.x
-sam --version       # SAM CLI, version 1.x.x
-python3.11 --version
 ```
 
 ### Configure AWS credentials
 
 ```bash
 aws configure --profile rhythmcloud
-# AWS Access Key ID:     <your key>
-# AWS Secret Access Key: <your secret>
-# Default region:        eu-north-1
-# Default output format: json
-
+# Region: eu-north-1
 export AWS_PROFILE=rhythmcloud
 ```
 
-### Deploy to AWS
+### Deploy compute layer (SAM)
 
 ```bash
-# Clone the repository
 git clone https://github.com/AshlinBangera/Cloud-Based-Remote-Patient-Monitoring-Platform---AWS-Serverless-Project.git
 cd Cloud-Based-Remote-Patient-Monitoring-Platform---AWS-Serverless-Project
 
-# Install dependencies
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-
-# Build and deploy (dev environment)
-sam build --config-env dev
-sam deploy --config-env dev
+sam build --config-env dev && sam deploy --config-env dev
 ```
 
-The deploy takes ~3 minutes. The final output shows your live API URL:
+### Deploy data layer (Terraform)
 
+```bash
+cd terraform
+
+# Get your IAM ARN for terraform.tfvars
+aws sts get-caller-identity --query Arn --output text --profile rhythmcloud
+
+terraform init
+terraform plan
+terraform apply
 ```
-Outputs:
-ApiBaseUrl = https://<id>.execute-api.eu-north-1.amazonaws.com/dev
+
+### Run the Glue crawler (first time)
+
+```bash
+aws glue start-crawler \
+  --name rhythmcloud-telemetry-crawler-dev \
+  --profile rhythmcloud --region eu-north-1
+
+# Verify Glue table was created
+aws glue get-tables --database-name rhythmcloud_dev \
+  --profile rhythmcloud --region eu-north-1 \
+  --query 'TableList[*].Name'
 ```
 
 ### Test the API
@@ -366,245 +369,103 @@ ApiBaseUrl = https://<id>.execute-api.eu-north-1.amazonaws.com/dev
 ```bash
 BASE="https://<your-api-id>.execute-api.eu-north-1.amazonaws.com/dev"
 
-# Ingest an event
-curl -X POST $BASE/events \
-  -H "Content-Type: application/json" \
-  -d @events/sample_event.json
-
-# Check dashboard KPIs
+curl -X POST $BASE/events -H "Content-Type: application/json" -d @events/sample_event.json
 curl $BASE/dashboard/kpis
+curl "$BASE/analytics?query=population&days=30"
+curl $BASE/patients/P001/risk
+```
 
-# Get patient summary
-curl $BASE/patients/P001/summary
+### Run the dashboard locally
+
+```bash
+cd frontend
+python3 -m http.server 8080
+# Dashboard:  http://localhost:8080/rpm-dashboard.html
+# Analytics:  http://localhost:8080/analytics.html
 ```
 
 ### Tear down
 
 ```bash
 aws cloudformation delete-stack --stack-name rhythmcloud-dev --region eu-north-1
+cd terraform && terraform destroy
 ```
-
----
-
-## Data Simulator
-
-Generate realistic cardiac telemetry for 5 patients with configurable abnormal rates, transmission failures, and time windows.
-
-```bash
-# Standard run — 200 events across 5 patients over 24 hours
-python3 scripts/simulate_data.py \
-  --patients 5 \
-  --events 40 \
-  --abnormal-rate 0.15 \
-  --hours-back 24 \
-  --delay-ms 80
-
-# High-stress test — more abnormal events to trigger alarms
-python3 scripts/simulate_data.py --patients 5 --events 20 --abnormal-rate 0.4
-
-# Preview without sending to API
-python3 scripts/simulate_data.py --dry-run --events 5
-```
-
-**Simulated patient profiles:**
-
-| Patient | Name | Condition |
-|---------|------|-----------|
-| P001 | Alice Brennan | Atrial fibrillation |
-| P002 | Brian Doyle | Heart failure |
-| P003 | Catherine Murphy | Hypertension |
-| P004 | David O'Sullivan | Arrhythmia |
-| P005 | Eleanor Walsh | Coronary artery disease |
-
-**Simulated abnormal events:**
-- Tachycardia (HR 130–180 bpm)
-- Bradycardia (HR 30–49 bpm)
-- Hypertensive crisis (SBP 185–230 mmHg)
-- Hypoxia (SpO2 82–89%)
-- Transmission failures (8% rate)
-- Sync failures (6% rate)
-- Battery critical events (<20%)
-
----
-
-## Athena SQL Queries
-
-Run SQL analysis directly on the S3 raw event archive. All queries use partition projection for cost-efficient scanning.
-
-**Setup:**
-
-```sql
--- 1. Create the database (run once)
-CREATE DATABASE IF NOT EXISTS rhythmcloud;
-
--- 2. Create the external table (run once, replace account ID)
--- See sql/create_table.sql
-```
-
-**Available queries:**
-
-| File | Analysis |
-|------|---------|
-| `transmission_success_rate.sql` | Daily TX success % with 7-day rolling average |
-| `abnormal_events.sql` | Abnormal event counts by patient + breakdown by type |
-| `adherence_trend.sql` | Per-patient daily adherence score with 7-day rolling avg |
-| `sync_reliability.sql` | Device health status, signal quality, failure patterns |
-| `heatmap_aggregation.sql` | 7×7 day/time matrix with intensity scores |
-
-**Example — abnormal events by patient:**
-```sql
-SELECT patientId,
-       COUNT(*) AS total_events,
-       SUM(CASE WHEN heartRate < 50 OR heartRate > 130 OR spo2 < 90
-                THEN 1 ELSE 0 END) AS abnormal_count,
-       ROUND(AVG(heartRate), 1) AS avg_heart_rate
-FROM rhythmcloud.telemetry_events
-WHERE year = '2026' AND month = '03'
-GROUP BY patientId
-ORDER BY abnormal_count DESC;
-```
-
----
-
-## Dashboard Integration
-
-The live dashboard (`frontend/rpm-dashboard.html`) polls all API endpoints automatically:
-
-| Endpoint | Widget | Interval |
-|----------|--------|----------|
-| `GET /dashboard/kpis` | Gauge, sync card, abnormal counter | 10s |
-| `GET /dashboard/recent-events` | Events table | 5s |
-| `GET /dashboard/sync-frequency` | Sync frequency line chart | 30s |
-| `GET /dashboard/vitals-trend` | Vitals trending chart | 30s |
-| `GET /dashboard/adherence` | Patient adherence bar chart | 60s |
-| `GET /dashboard/heatmap` | Cardiac event heatmap | 60s |
-
-**Run locally:**
-```bash
-cd frontend
-python3 -m http.server 8080
-# Open http://localhost:8080/rpm-dashboard.html
-```
-
----
-
-## CloudWatch Metrics & Alarms
-
-Custom metrics published to the `RhythmCloud` namespace after every event:
-
-| Metric | Unit | Description |
-|--------|------|-------------|
-| `TotalEvents` | Count | Every ingested event |
-| `AbnormalEvents` | Count | Events exceeding clinical thresholds |
-| `TransmissionFailures` | Count | Failed transmissions |
-| `SyncFailures` | Count | Failed device syncs |
-| `TransmissionSuccessRate` | Percent | Rolling TX success rate |
-| `AdherenceScore` | Percent | Average patient adherence |
-
-**Alarms configured:**
-
-| Alarm | Threshold | Action |
-|-------|-----------|--------|
-| High abnormal event rate | ≥10 events / 5 min | Clinical review required |
-| Low transmission success | <90% over 2 periods | Device investigation |
-| Low adherence score | <70% hourly avg | Patient outreach |
-| Ingest Lambda errors | ≥5 errors / 3 min | Engineering alert |
-| KPI processor DLQ depth | ≥1 message | Stream processing failure |
 
 ---
 
 ## CI/CD Pipeline
 
-Every push to `main` automatically runs the full pipeline via GitHub Actions.
+Every push to `main` automatically runs the full pipeline. Staging promotion is manual.
 
 ```
 Push to main
-    │
-    ▼
+    ↓
 Lint & Test (~30s)
   · flake8 syntax check
-  · pytest 14 unit tests (moto mocks — no real AWS)
-    │
-    ▼ (only if tests pass)
+  · pytest 14 unit tests (moto mocks — no real AWS calls)
+    ↓
 Deploy to Dev (~90s)
-  · sam build
-  · sam deploy --no-confirm-changeset
-  · Smoke test: POST /events → assert HTTP 201
-  · Print deployment summary to Actions tab
+  · sam build --config-env dev
+  · sam deploy --config-env dev
+  · Smoke test: POST /events → assert HTTP 200/201
+  · Smoke test: GET /dashboard/kpis → assert HTTP 200
+    ↓
+[Manual: GitHub Actions → Run workflow → promote_to_staging=true]
+    ↓
+Deploy to Staging
+  · Isolated rhythmcloud-staging stack
+  · INFO logging, 60-day data retention
+  · confirm_changeset=true — never auto-deploys
 ```
 
-**Setup:** Add two GitHub repository secrets — `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`. Every future push deploys automatically.
+Setup: add `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` as GitHub repository secrets.
 
 ---
 
 ## Real-Time Alerting
 
-When the ingest Lambda detects an abnormal cardiac event, it immediately publishes a structured clinical alert to an SNS topic. The topic delivers an email to subscribed clinician addresses within seconds.
+When the ingest Lambda detects an abnormal cardiac event, it immediately publishes a structured alert to SNS, delivering an email to clinicians within seconds.
 
-**Alert types detected:**
-
-| Alert Type | Trigger Condition |
-|------------|------------------|
-| TACHYCARDIA | Heart rate > 130 bpm |
-| BRADYCARDIA | Heart rate < 50 bpm |
+| Alert Type | Trigger |
+|------------|---------|
+| TACHYCARDIA | HR > 130 bpm |
+| BRADYCARDIA | HR < 50 bpm |
 | HYPOXIA | SpO2 < 90% |
 | HYPERTENSIVE_CRISIS | Systolic BP > 180 mmHg |
-| BATTERY_CRITICAL | Battery level < 20% |
+| BATTERY_CRITICAL | Battery < 20% |
 | TRANSMISSION_FAILURE | transmissionStatus = "failed" |
 | SYNC_FAILURE | syncStatus = "failed" |
 
-**Sample email subject:**
-```
-[HIGH] RhythmCloud Alert — Tachycardia — Patient P002
-```
+Email subject format: `[HIGH] RhythmCloud Alert — Tachycardia — Patient P002`
 
-**Email body includes:** alert type, severity, patient ID, device ID, timestamp, full vitals at time of alert, clinical summary, and action required section.
-
-**Configure:** Set `ClinicalAlertEmail` in `samconfig.toml` and confirm the AWS subscription email before alerts are delivered.
+Configure: set `ClinicalAlertEmail` in `samconfig.toml` and confirm the AWS subscription email.
 
 ---
 
 ## Alert Response Time Tracking
 
-Every alert is written to a dedicated `AlertsTable` DynamoDB table with `status: ACTIVE`. When a clinician acknowledges the alert, the system records the exact timestamp and computes the response time delta.
-
-**Flow:**
-
-```
-Abnormal event detected
-        ↓
-alerting_service writes alert record (status: ACTIVE, detectedAt: now)
-        ↓
-Clinician calls POST /alerts/{alertId}/acknowledge
-        ↓
-Lambda sets status: ACKNOWLEDGED, acknowledgedAt: now
-responseTimeSec = acknowledgedAt - detectedAt
-        ↓
-CloudWatch publishes AlertResponseTimeSeconds metric
-```
-
-**Test the full cycle:**
+Every alert is written to `AlertsTable` with `status: ACTIVE`. When a clinician acknowledges it, the system records the delta and publishes `AlertResponseTimeSeconds` to CloudWatch.
 
 ```bash
-# 1. Ingest an abnormal event
+# 1. Ingest an abnormal event — creates alert record
 curl -X POST $BASE/events -d '{"heartRate":155,...}'
 
 # 2. Get the alertId
 curl $BASE/patients/P001/alerts
 
-# 3. Acknowledge and see response time
+# 3. Acknowledge — see response time in reply
 curl -X POST $BASE/alerts/<alertId>/acknowledge \
   -d '{"acknowledgedBy":"Dr. Smith"}'
 # → {"responseTimeSec": 274, "responseTimeLabel": "4m 34s"}
 ```
 
+The dashboard also provides a one-click Acknowledge button in the Active Alerts panel — no terminal required.
+
 ---
 
 ## Patient Risk Scoring
 
-A pure Python scoring engine reads the last 50 events per patient and outputs a composite risk score (0–100) with clinical recommendations. No ML framework needed.
-
-**Five weighted factors:**
+Pure Python scoring engine reads the last 50 events per patient and outputs a composite 0–100 risk score with clinical recommendations. No ML framework needed.
 
 | Factor | Weight | What it measures |
 |--------|--------|-----------------|
@@ -614,31 +475,182 @@ A pure Python scoring engine reads the last 50 events per patient and outputs a 
 | Device health | 15% | Battery level + signal strength |
 | SpO2 average | 10% | Average oxygen saturation |
 
-**Risk levels:**
+| Score | Level | Action |
+|-------|-------|--------|
+| 0–24 | LOW 🟢 | Routine monitoring |
+| 25–49 | MEDIUM 🟡 | Schedule clinical review |
+| 50–74 | HIGH 🟠 | Urgent review within 2–4 hours |
+| 75–100 | CRITICAL 🔴 | Immediate intervention required |
 
-| Score | Level | Color | Action |
-|-------|-------|-------|--------|
-| 0–24 | LOW | 🟢 Green | Routine monitoring |
-| 25–49 | MEDIUM | 🟡 Yellow | Schedule clinical review |
-| 50–74 | HIGH | 🟠 Orange | Urgent review within 2–4 hours |
-| 75–100 | CRITICAL | 🔴 Red | Immediate intervention required |
+---
 
-**Example response:**
-```json
-{
-  "patientId":      "P004",
-  "riskScore":      45.6,
-  "riskLevel":      "MEDIUM",
-  "riskColor":      "#f59e0b",
-  "abnormalRate":   50.0,
-  "avgSpo2":        92.7,
-  "heartRateTrend": "worsening",
-  "recommendations": [
-    "Assess respiratory status — consider pulse oximetry verification.",
-    "Schedule urgent clinical review within 2–4 hours."
-  ]
-}
+## Terraform Data Layer
+
+Data infrastructure is provisioned separately from SAM — the dual-IaC pattern used in real production teams. SAM owns compute; Terraform owns data.
+
+### Resources provisioned (20 total)
+
+| Resource | Name | Purpose |
+|----------|------|---------|
+| `aws_glue_catalog_database` | `rhythmcloud_dev` | Central metadata store for all tables |
+| `aws_glue_crawler` | `rhythmcloud-telemetry-crawler-dev` | Daily S3 crawl — auto-discovers schema and partitions |
+| `aws_glue_job` | `rhythmcloud-json-to-parquet-dev` | ETL — raw JSON → Parquet, Snappy compressed, 10x cheaper queries |
+| `aws_s3_bucket` | `rhythmcloud-parquet-*` | Columnar output bucket, versioned, AES-256 |
+| `aws_athena_workgroup` | `rhythmcloud-dev` | 1GB per-query scan limit, SSE results, CloudWatch metrics |
+| `aws_athena_named_query` ×5 | — | Saved SQL queries visible in Athena console |
+| `aws_lakeformation_resource` ×2 | — | Raw events + Parquet buckets registered as data lake |
+| `aws_lakeformation_permissions` ×4 | — | Column-level access control for Glue and Lambda roles |
+| `aws_iam_role` | `rhythmcloud-glue-role-dev` | Least-privilege role for Glue crawler and ETL |
+
+### Deploy
+
+```bash
+cd terraform
+terraform init && terraform plan && terraform apply
 ```
+
+### Run the Glue ETL job manually
+
+```bash
+aws glue start-job-run \
+  --job-name rhythmcloud-json-to-parquet-dev \
+  --profile rhythmcloud --region eu-north-1
+```
+
+---
+
+## Athena Analytics Page
+
+`frontend/analytics.html` is a standalone analytics page backed by the `GET /analytics` Lambda, which runs parameterised Athena SQL queries against the Glue data catalog and returns chart-ready JSON.
+
+### 5 analysis types
+
+| Query | Visualisation |
+|-------|--------------|
+| Population Health | 7 KPI cards — avg HR, SpO2 range, TX success %, clinical alerts, battery, patient count |
+| Transmission | Daily TX success rate line chart with 90% target line + breakdown table |
+| Adherence | Bar chart + per-patient progress bars coloured green/amber/red |
+| Abnormal Events | Bar chart + doughnut chart + patient detail table with avg HR/SpO2 |
+| Device Sync | Reliability table with battery/signal + grouped bar chart per device |
+
+Each result shows data scanned (KB), execution time, and workgroup at the bottom. Time window is selectable: 7, 14, or 30 days.
+
+```bash
+# Example API calls
+curl "$BASE/analytics?query=population&days=30"
+curl "$BASE/analytics?query=transmission&days=14"
+curl "$BASE/analytics?query=sync&days=7"
+```
+
+---
+
+## Dashboard Features
+
+`frontend/rpm-dashboard.html` — the main operational dashboard, entirely client-side, polling 13 live AWS API endpoints.
+
+### Control toolbar
+- **Patient selector pills** — All / P001–P005. Filters the events table, highlights the selected patient's adherence bar, and switches the vitals chart to per-patient raw events
+- **Time range pills** — 1h / 6h / 24h / 7d. Maps to data point limits sent as `?limit=` query params on chart endpoints
+
+### KPI section
+- Transmission Success Rate gauge with 20-point historical sparkline and trend arrow
+- Device Sync Reliability card — operational status, latency, failure count
+- Device Sync Frequency line chart
+- Abnormal Event Frequency counter (last 24h)
+- AWS Pipeline animation — IoT → API Gateway → Lambda → DynamoDB → S3 → CloudWatch → SNS
+
+### Clinical section
+- SpO2 Trending chart — purple line chart with red 90% threshold reference line
+- Device Health grid — battery progress bar + signal status per device, updates every 30s
+
+### Risk & Alerts section
+- **Patient Risk Scores panel** — all 5 patients with colour-coded risk bars (green/amber/orange/red); click any row to open the patient drill-down panel
+- **Alert Response Time KPI** — avg / fastest / slowest acknowledgement times across all patients
+- **Active Alerts panel** — all unacknowledged alerts sorted by recency with inline Acknowledge button
+- **Notification bell** — badge showing unread alert count, shakes red when a new alert fires
+
+### Patient drill-down panel
+Slides in from the right when clicking any patient ID in the risk panel or events table:
+- Risk score banner — colour-coded with score, level, and top contributing factor
+- Latest vitals grid — HR, SpO2, SBP, DBP, Battery, Last Seen — red borders on abnormal values
+- Clinical recommendations from the risk scoring engine
+- Alert history — last 5 alerts with type, time elapsed, and acknowledgement time
+- Recent events — last 8 events with per-row HR / SpO2 / SBP readings
+
+---
+
+## Data Simulator
+
+```bash
+# Standard — 200 events across 5 patients over 6 hours
+python3 scripts/simulate_data.py --patients 5 --events 40 --hours-back 6
+
+# High-stress — more abnormal events to trigger alerts
+python3 scripts/simulate_data.py --patients 5 --events 20 --abnormal-rate 0.4
+
+# Preview without hitting the API
+python3 scripts/simulate_data.py --dry-run --events 5
+```
+
+| Patient | Name | Condition |
+|---------|------|-----------|
+| P001 | Alice Brennan | Atrial fibrillation |
+| P002 | Brian Doyle | Heart failure |
+| P003 | Catherine Murphy | Hypertension |
+| P004 | David O'Sullivan | Arrhythmia |
+| P005 | Eleanor Walsh | Coronary artery disease |
+
+Simulated abnormal events: tachycardia (130–180 bpm), bradycardia (30–49 bpm), hypertensive crisis (SBP 185–230), hypoxia (SpO2 82–89%), transmission failures (8%), sync failures (6%), battery critical (<20%).
+
+---
+
+## CloudWatch Metrics & Alarms
+
+Custom metrics published to the `RhythmCloud` namespace:
+
+| Metric | Unit | Description |
+|--------|------|-------------|
+| `TotalEvents` | Count | Every ingested telemetry event |
+| `AbnormalEvents` | Count | Events exceeding clinical thresholds |
+| `TransmissionFailures` | Count | Failed device transmissions |
+| `SyncFailures` | Count | Failed device syncs |
+| `TransmissionSuccessRate` | Percent | Rolling TX success rate per batch |
+| `AdherenceScore` | Percent | Average patient adherence |
+| `AlertResponseTimeSeconds` | Seconds | Time from alert detection to acknowledgement |
+
+| Alarm | Threshold | Trigger |
+|-------|-----------|---------|
+| High abnormal event rate | ≥10 events / 5 min | Clinical review required |
+| Low transmission success | <90% over 2 periods | Device investigation |
+| Low adherence score | <70% hourly avg | Patient outreach |
+| Ingest Lambda errors | ≥5 errors / 3 min | Engineering alert |
+| KPI processor DLQ depth | ≥1 message | Stream processing failure |
+
+---
+
+## Resume Bullets
+
+- **Designed and deployed a production-grade serverless remote patient monitoring platform on AWS**, processing cardiac IoT telemetry through a Lambda → DynamoDB Streams → KPI aggregation pipeline with zero server management
+
+- **Built a real-time clinical alerting system using Amazon SNS**, triggering structured email notifications to clinicians within seconds of abnormal cardiac events — tachycardia, bradycardia, hypoxia, hypertensive crisis — with full patient vitals in the alert body
+
+- **Implemented end-to-end alert response time tracking**, recording detection-to-acknowledgement deltas per alert and publishing `AlertResponseTimeSeconds` to CloudWatch; clinicians acknowledge directly from the dashboard without any terminal access
+
+- **Engineered a patient risk scoring engine in pure Python** computing composite 0–100 risk scores from 5 weighted clinical factors across each patient's last 50 telemetry events, with colour-coded levels and auto-generated clinical recommendations
+
+- **Built an AWS Glue data pipeline** converting Hive-partitioned S3 JSON events to Snappy-compressed Parquet, reducing Athena query costs by 10x, with automated daily schema discovery via a Glue crawler updating the Glue Data Catalog
+
+- **Governed a production data lake using AWS Lake Formation**, registering S3 locations and enforcing column-level access control permissions separating clinical from operational roles
+
+- **Delivered Athena-powered analytics** via a dedicated analytics page backed by a Lambda endpoint that executes 5 parameterised SQL queries — population health, transmission trends, adherence scoring, abnormal event analysis, device sync reliability — visualised with Chart.js
+
+- **Implemented dual Infrastructure as Code** — AWS SAM for the serverless compute layer (Lambda, API Gateway, DynamoDB, SNS) and Terraform for the data layer (Glue, Athena, Lake Formation — 20 resources), mirroring the separation of concerns used in real production engineering teams
+
+- **Architected a real-time clinical data API** using API Gateway + Lambda serving 13 REST endpoints backed by pre-computed DynamoDB aggregates for sub-100ms dashboard response times
+
+- **Built a GitHub Actions CI/CD pipeline** with automated lint, 14 moto-mocked unit tests, `sam build`, `sam deploy`, live smoke tests on two endpoints, and manual staging promotion via `workflow_dispatch`
+
+- **Developed a feature-rich operational dashboard** with patient selector, time range filter, SpO2 trending, device health grid, patient drill-down panel, notification bell with alert badge, and an active alerts panel with inline acknowledgement — all connected to live AWS APIs
 
 ---
 
@@ -646,4 +658,4 @@ MIT — see [LICENSE](LICENSE)
 
 ---
 
-*Built with AWS Serverless — Lambda, DynamoDB, S3, API Gateway, SNS, CloudWatch, Athena · CI/CD via GitHub Actions*
+*Built with AWS Lambda · DynamoDB · S3 · API Gateway · SNS · CloudWatch · Glue · Athena · Lake Formation · SAM · Terraform · GitHub Actions*
